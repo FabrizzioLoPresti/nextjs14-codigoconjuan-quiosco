@@ -1,0 +1,31 @@
+services:
+  # app:
+  #   build:
+  #     context: .
+  #   image: nextjs-dev
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     NODE_ENV: development
+  #   develop:
+  #     watch:
+  #       - action: sync
+  #         path: ./src
+  #         target: /app/src
+  #         ignore:
+  #           - node_modules/
+  #       - action: rebuild
+  #         path: package.json
+  db:
+    image: postgres:15-alpine
+    container_name: db-quiosco-container
+    environment:
+      POSTGRES_DB: db-quioco
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+    ports:
+      - 5432:5432
+    volumes:
+      - db-quiosco-data:/var/lib/postgresql/data
+volumes:
+  db-quiosco-data:
