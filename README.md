@@ -152,3 +152,159 @@ export default function RootLayout({
   );
 }
 ```
+
+### Que es Prisma ORM
+
+- Prisma es un ORM (Object Relational Mapping) que nos permite interactuar con nuestra base de datos de una manera mas sencilla y eficiente, es opensource y se puede utilizar tanto con JavaScript como con TypeScript.
+- Consta de tres partes principales:
+  - Prisma Client: sirve para interactuar con la base de datos y ejecutar queries desde nuestra aplicacion. Es el `Query Builder` o la herramienta que te permite consultar tu base de datos, soporta Node.js y TypeScript. Ademas se puede utilizar con Next.js son ningun problema.
+  - Prisma Studio: es un cliente web para ver los datos de la base de datos y hacer consultas. Es la unica herramienta de Prisma que no es OpenSource pero se puede utilizar localmente, es para ver tu base de datos.
+  - Prisma Migrate: es el sistema de migraciones. En Prisma ORM puedes definir tus tablas y relaciones, y esta herramienta se encargara de generar toda la base de datos.
+
+#### Bases de datos soportadas por Prisma
+
+- MariaDB
+- MySQL
+- PostgreSQL
+- SQLite
+- SQL Server 2017, 2019 y 2022
+- MongoDB (mejor Mongoose)
+
+### Instalando Prisma ORM
+
+Primero debemos instalar por medio de la Consola de Comandos de Windows o la Terminal de Visual Studio Code las siguientes dependencias dentro de nuestro proyecto:
+
+```bash
+  npm install @prisma/client
+  npm install -D prisma
+```
+
+Ahora debemos configurar Prisma en nuestro proyecto, para ello debemos ejecutar el siguiente comando, el cual creara el `schema.prisma` en la raiz de nuestro proyecto y donde podremos definir las diferentes tablas y como se van a relacionar entre ellas:
+
+```bash
+  npx prisma init
+```
+
+### Modelos en Prisma ORM
+
+Para definir los modelos de la base de datos lo hacemos en el archivo `schema.prisma` que se encuentra en la raiz de nuestro proyecto. Se utiliza la palabra reservada `model` seguida del nombre de la tabla y dentro de las llaves `{}` se definen los campos de la tabla.
+
+schema.prisma
+
+```prisma
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+
+Una vez tengamos lista nuestra tabla la vamos a agregar a la base de datos mediante el siguiente comando:
+
+```bash
+  npx prisma migrate dev --name categories_migration
+```
+
+Luego agregamos un nuevo modelo para la tabla `Product`:
+
+schema.prisma
+
+```prisma
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  slug      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  Product   Product[]
+}
+
+model Product {
+  id         Int      @id @default(autoincrement())
+  name       String
+  price      Float
+  image      String
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+```
+
+Ahora debemos migrar la tabla `Product` a la base de datos:
+
+```bash
+  npx prisma migrate dev --name products_migration
+```
+
+### Seeding a la base de datos
+
+Seeding es una forma en la cual puedes agregar datos a la base de datos, ya sea de prueba o en forma masiva a la base de datos de nuestra aplicacion. Estos datos se recomiendan que sean lo mas cercano a los datos que se van a encontrar en produccion para que las pruebas sean mas reales.
+
+Lo primero que debemos hacer es instalar la dependencia de `ts-node` para poder ejecutar archivos de TypeScript en la terminal:
+
+```bash
+  npm install -D ts-node
+```
+
+El siguiente paso es crear dentro de la carpeta de `prisma` un archivo llamado `seed.ts` y dentro de este archivo vamos a agregar los datos que queremos agregar a la base de datos:
+
+prisma/seed.ts
+
+```ts
+import { categories } from "./data/categories";
+import { products } from "./data/products";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  try {
+    await prisma.category.createMany({
+      data: categories,
+    });
+    await prisma.product.createMany({
+      data: products,
+    });
+  } catch (error) {
+    console.log(error);
+  }
+}
+
+main()
+  .then(async () => {
+    console.log("Seed completed");
+    await prisma.$disconnect();
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  });
+```
+
+Ademas junto a la carpeta de migrations, vamos a crear una nueva carpeta `data` y dentro de esta carpeta vamos a agregar un archivo `categories.ts` y `products.ts` con los datos que queremos agregar a la base de datos.
+
+Por ultimo debemos mandar a llamar el archivo `seeder.ts` desde el archivo `package.json` creando un nuevo script:
+
+package.json
+
+```json
+"scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "prisma": {
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
+  },
+```
+
+Ya para agregar este conjunto de datos a la base de datos, debemos ejecutar el siguiente comando:
+
+```bash
+  npx prisma db seed
+```
