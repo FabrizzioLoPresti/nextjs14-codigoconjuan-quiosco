@@ -1,7 +1,23 @@
+import prismaClient from "@/libs/prisma";
+import CategoryIcon from "../icons/category-icon";
+
 type Props = {};
 
-const OrderSidebar = (props: Props) => {
-  return <aside className="md:w-72 md:h-screen bg-white">OrderSidebar</aside>;
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const OrderSidebar = async (props: Props) => {
+  const categories = await getCategories();
+  return (
+    <aside className="md:w-72 md:h-screen bg-white">
+      <nav className="mt-10">
+        {categories.map((category) => (
+          <CategoryIcon key={category.id} category={category} />
+        ))}
+      </nav>
+    </aside>
+  );
 };
 
 export default OrderSidebar;

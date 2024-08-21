@@ -308,3 +308,164 @@ Ya para agregar este conjunto de datos a la base de datos, debemos ejecutar el s
 ```bash
   npx prisma db seed
 ```
+
+### Data Fetching en Next.js
+
+En Next.js el Data Fetching se puede hacer hasta de 4 formas diferentes:
+
+- Utilizando en el Servidor la funcion de `fetch()`
+- En el Servidor con un ORM o Consutlas SQL
+- En el Cliente con un `Route Handler` y una peticion GET
+- En el Cliente con React Query, Axios, SWR u otras opciones
+
+Primero vamos a definir en `libs/prisma.ts` la conexion a la base de datos utilizando el `Patron Singleton`:
+
+```ts
+import { PrismaClient } from "@prisma/client";
+
+const prismaClientSingleton = () => {
+  return new PrismaClient();
+};
+
+declare const globalThis: {
+  prismaGlobal: ReturnType<typeof prismaClientSingleton>;
+} & typeof global;
+
+const prisma = globalThis.prismaGlobal ?? prismaClientSingleton();
+
+export default prisma;
+
+if (process.env.NODE_ENV !== "production") globalThis.prismaGlobal = prisma;
+```
+
+Consultamos las categorias desde `order-sidebar.tsx`:
+
+```tsx
+import prismaClient from "@/libs/prisma";
+
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const OrderSidebar = async (props: Props) => {
+  const categories = await getCategories();
+  return <aside className="md:w-72 md:h-screen bg-white">OrderSidebar</aside>;
+};
+
+export default OrderSidebar;
+```
+
+### Iterando sobre las categorias
+
+Vamos a iterar sobre las categorias que obtuvimos de la base de datos y las vamos a mostrar en el componente `order-sidebar.tsx`:
+
+```tsx
+import prismaClient from "@/libs/prisma";
+import CategoryIcon from "../icons/category-icon";
+
+type Props = {};
+
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const OrderSidebar = async (props: Props) => {
+  const categories = await getCategories();
+  return (
+    <aside className="md:w-72 md:h-screen bg-white">
+      <nav className="mt-10">
+        {categories.map((category) => (
+          <CategoryIcon key={category.id} category={category} />
+        ))}
+      </nav>
+    </aside>
+  );
+};
+
+export default OrderSidebar;
+```
+
+En el Componente `category-icon.tsx` vamos a mostrar la categoria utilizando los `types` de Prisma:
+
+```tsx
+import { Category } from "@prisma/client";
+
+type Props = {
+  category: Category;
+};
+
+const CategoryIcon = ({ category }: Props) => {
+  return <div>{category.name}</div>;
+};
+
+export default CategoryIcon;
+```
+
+### Mostrando Categorias e Iconos
+
+Vamos a mostrar las categorias en el componente `category-icon.tsx` y vamos a agregar un icono a cada categoria:
+
+```tsx
+import Image from "next/image";
+import Link from "next/link";
+import { Category } from "@prisma/client";
+
+type Props = {
+  category: Category;
+};
+
+const CategoryIcon = ({ category }: Props) => {
+  return (
+    <div
+      className={`flex items-center gap-4 w-full border-t border-gray-200 p-3 last-of-type:border-b`}
+    >
+      <div className="w-16 h-16 relative">
+        <Image
+          src={`/icon_${category.slug}.svg`}
+          alt={category.name}
+          fill
+          // width={24}
+          // height={24}
+        />
+      </div>
+      <Link href={`/orders/${category.slug}`} className="text-xl font-bold">
+        {category.name}
+      </Link>
+    </div>
+  );
+};
+
+export default CategoryIcon;
+```
+
+### Routing Dinamico en Next.js
+
+- Muchas veces quieres acceder a un recurso en la base de datos por medio de su ID o slug, ya sea para ver los detalles de un producto, leer una entrada de blog o datos de un cliente.
+- En estos casos se utiliza el `Routing Dinamico` para poder acceder a estos recursos de manera mas sencilla.
+- En `App Router`, la forma en la que generas el `Routing Dinamico` es con una carpeta y un nombre entre corchetes `[]`, por ejemplo `/products/[id]` o `/products/[slug]`, o `/payments/[paymentId]`.
+
+Dentro de la carpeta `orders` vamos a crear una nueva carpeta llamada `[category]` y dentro de esta carpeta vamos a crear un archivo `page.tsx`, el cual va a ser el componente que se va a renderizar cuando se acceda a la URL `/orders/[category]` y este nuevo `page.tsx` se va a insertar en el layout de `orders/layout.tsx`, en el mismo por medio de Props vamos a tener acceso a la categoria que se esta accediendo mediante la URL atraves de `params`.
+
+orders/[category]/page.tsx
+
+```tsx
+type Props = {
+  params: {
+    category: string;
+  };
+};
+
+export default function OrdersPage({ params: { category } }: Props) {
+  return <div>{category}</div>;
+}
+```
+
+Ademas, en caso de no encontrar la categoria en la base de datos, podemos crear una pagina de `Not Found` en la carpeta `app/not-found.tsx` o `orders/[category]/not-found.tsx`:
+
+```tsx
+type Props = {};
+
+export default function NotFoundPage({}: Props) {
+  return <div>NotFoundPage</div>;
+}
+```
