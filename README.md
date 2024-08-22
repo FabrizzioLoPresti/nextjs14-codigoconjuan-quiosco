@@ -469,3 +469,218 @@ export default function NotFoundPage({}: Props) {
   return <div>NotFoundPage</div>;
 }
 ```
+
+### Detectar la Categoria actual y Obtener los Productos
+
+Ya hemos implementado el `Routing Dinamico` en Next.js y ya estamos leyendo los parametros desde la URL por medio de los `params` en el componente `orders/[category]/page.tsx`, ahora vamos a obtener la categoria actual y los productos de esa categoria.
+
+De la forma en que funciona Prisma, para traer todos los productos de una categoria, no es necesario realizar una consulta con un `where` por el ID de la Categoria o un `findMany`, sino que podemos acceder a los productos de una categoria por medio de la relacion que se establecio en el modelo de la tabla `Category`:
+
+orders/[category]/page.tsx
+
+```tsx
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  params: {
+    category: string;
+  };
+};
+
+const getProducts = async (category: string) => {
+  try {
+    const products = await prismaClient.product.findMany({
+      where: {
+        category: {
+          slug: category,
+        },
+      },
+    });
+    return products;
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+export default async function OrdersPage({ params: { category } }: Props) {
+  const products = await getProducts(category);
+  return <div>{category}</div>;
+}
+```
+
+### Iterando sobre los Productos
+
+Dentro de `/components` vamos a generar la carpeta de `/products` y dentro el componente Card para cada uno de los productos:
+
+orders/[category]/page.tsx
+
+```tsx
+import ProductCard from "@/components/products/product-card";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  params: {
+    category: string;
+  };
+};
+
+const getProducts = async (category: string) => {
+  try {
+    const products = await prismaClient.product.findMany({
+      where: {
+        category: {
+          slug: category,
+        },
+      },
+    });
+    return products;
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+export default async function OrdersPage({ params: { category } }: Props) {
+  const products = await getProducts(category);
+  return (
+    <>
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-start">
+        {products?.map((product) => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+      </div>
+    </>
+  );
+}
+```
+
+components/products/product-card.tsx
+
+```tsx
+import { Product } from "@prisma/client";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  product: Product;
+};
+
+const ProductCard = ({ product }: Props) => {
+  return (
+    <div className="border bg-white">
+      <div className="p-5">
+        <h3 className="text-2xl font-bold">{product.name}</h3>
+        <p className="mt-5 font-black text-4xl text-amber-500">
+          ${formatCurrency(product.price)}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ProductCard;
+```
+
+Vamos a crear en `src/utils/index.ts` una funcion que nos permita formatear el precio de los productos:
+
+```ts
+export const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+};
+```
+
+### Finalizando los Card de Productos
+
+Vamos a agregar la imagen del producto y el boton de agregar al carrito en el componente `product-card.tsx`:
+
+```tsx
+import { Product } from "@prisma/client";
+import { formatCurrency } from "@/utils";
+import Image from "next/image";
+
+type Props = {
+  product: Product;
+};
+
+const ProductCard = ({ product }: Props) => {
+  return (
+    <div className="border bg-white">
+      <Image
+        src={`/products/${product.image}.jpg`}
+        alt={product.name}
+        width={300}
+        height={300}
+        quality={80}
+        className="w-full h-full object-cover"
+      />
+      <div className="p-5">
+        <h3 className="text-2xl font-bold">{product.name}</h3>
+        <p className="mt-5 font-black text-4xl text-amber-500">
+          ${formatCurrency(product.price)}
+        </p>
+        <button
+          type="button"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        >
+          Agregar
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default ProductCard;
+```
+
+### Resaltando la Categoria Actual
+
+La propiedad `params` de Next.js nos permite acceder a los parametros de la URL, en este caso a la categoria que se esta accediendo. Es importante destacar que solo se encuentra disponible y puede ser utilizado en los siguientes archivos o componentes:
+
+- layout.tsx
+- page.tsx
+- route.tsx
+- generateMetadata Functions
+
+Ademas, algo importante a destacar de Next.js, es que las consultas a la Base de Datos Postgresql se quedan cacheadas en el servidor, por lo que si se cambia de categoria, la pagina no se va a recargar, por lo que no se va a volver a ejecutar la consulta a la base de datos o si vamos a otra categoria y volvemos a la anterior, la consulta a la base de datos no se va a volver a ejecutar.
+
+Teniendo eso en cuenta, vamos a resaltar la categoria actual en el componente `category-icon.tsx` mediante el uso de `useParams` de Next.js:
+
+```tsx
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { Category } from "@prisma/client";
+
+type Props = {
+  category: Category;
+};
+
+const CategoryIcon = ({ category }: Props) => {
+  const { category: currentCategory } = useParams<{ category: string }>();
+  return (
+    <div
+      className={`${
+        category.slug === currentCategory && "bg-amber-400"
+      } flex items-center gap-4 w-full border-t border-gray-200 p-3 last-of-type:border-b`}
+    >
+      <div className="w-16 h-16 relative">
+        <Image
+          src={`/icon_${category.slug}.svg`}
+          alt={category.name}
+          fill
+          // width={24}
+          // height={24}
+        />
+      </div>
+      <Link href={`/orders/${category.slug}`} className="text-xl font-bold">
+        {category.name}
+      </Link>
+    </div>
+  );
+};
+
+export default CategoryIcon;
+```
