@@ -684,3 +684,197 @@ const CategoryIcon = ({ category }: Props) => {
 
 export default CategoryIcon;
 ```
+
+### Creando el Store de Zustand
+
+Debido a la naturaleza Server Side de Next.js junto al manejo de estado por medio de URLs, libreras para manejar `estados globales` del lado del `cliente` han ido perdiendo popularidad, pero en este caso es necesario mantener un estado global con el pedido del cliente, por lo cual vamos a instalar la libreria de `Zustand`:
+
+```bash
+  npm install zustand
+```
+
+Vamos a crear el store de `Zustand` en el archivo `src/store/store.ts`:
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+
+interface Store {
+  order: OrderItem[];
+}
+
+export const useStore = create<Store>((set) => ({
+  order: [],
+}));
+```
+
+Ademas vamos a crear el tipo de dato `OrderItem` en el archivo `src/types/index.d.ts`:
+
+```ts
+import { Product } from "@prisma/client";
+
+export type OrderItem = Pick<Product, "id" | "name" | "price"> & {
+  quantity: number;
+  subtotal: number;
+};
+```
+
+### Consumir el State de Orden
+
+Vamos a consumir el estado de la orden en el componente `order-summary.tsx`:
+
+```tsx
+"use client";
+
+import { useStore } from "@/store/store";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  console.log(order);
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El carrito está vacio</p>
+      ) : (
+        <ul>
+          {order.map((item) => (
+            <li key={item.id} className="flex justify-between my-2">
+              <p>{item.name}</p>
+              <p>{item.price}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+### Comunicar el Boton con el Store
+
+Vamos a comunicar el boton de `Agregar al Carrito` con el store de `Zustand` en el componente `product-card.tsx`, algo importante a resaltar es que no debemos definir todo el Componente como `Client Side`, sino solo la funcion que se va a ejecutar al hacer click en el boton, debido a que React en Next.js se ejecuta primero el Servidor y luego el Cliente por lo que no vamos a hacer que solo por la pequeña parte del boton con el `onClick()` tarde en ejecutarse todo el componente:
+
+product-card.tsx
+
+```tsx
+import Image from "next/image";
+import AddProductButton from "./add-product-button";
+import { Product } from "@prisma/client";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  product: Product;
+};
+
+const ProductCard = ({ product }: Props) => {
+  return (
+    <div className="border bg-white">
+      <Image
+        src={`/products/${product.image}.jpg`}
+        alt={product.name}
+        width={300}
+        height={300}
+        quality={80}
+        className="w-full h-full object-cover"
+      />
+      <div className="p-5">
+        <h3 className="text-2xl font-bold">{product.name}</h3>
+        <p className="mt-5 font-black text-4xl text-amber-500">
+          {formatCurrency(product.price)}
+        </p>
+        <AddProductButton product={product} />
+      </div>
+    </div>
+  );
+};
+
+export default ProductCard;
+```
+
+add-product-button.tsx
+
+```tsx
+"use client";
+import { useStore } from "@/store/store";
+import { Product } from "@prisma/client";
+
+type Props = {
+  product: Product;
+};
+
+const AddProductButton = ({ product }: Props) => {
+  const addToOrder = useStore((state) => state.addToOrder);
+  return (
+    <button
+      type="button"
+      onClick={() => addToOrder(product)}
+      className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+    >
+      Agregar
+    </button>
+  );
+};
+
+export default AddProductButton;
+```
+
+Em el Store de `Zustand` vamos a agregar la funcion `addToOrder` para agregar un producto al carrito:
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+}
+
+export const useStore = create<Store>((set) => ({
+  order: [],
+  addToOrder: (product) => {
+    console.log(`Agregando producto: ${product.name}`);
+  },
+}));
+```
+
+### Agregar Productos a la Orden
+
+Para agregar productos al carrito, vamos a utilizar la funcion `addToOrder` en el store de `Zustand`:
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+}
+
+export const useStore = create<Store>((set) => ({
+  order: [],
+  addToOrder: (product) => {
+    console.log(`Agregando producto: ${product.name}`);
+
+    const { categoryId, image, createdAt, updatedAt, ...data } = product;
+
+    set((state) => ({
+      order: [
+        ...state.order,
+        {
+          ...data,
+          quantity: 1,
+          subtotal: data.price,
+        },
+      ],
+    }));
+  },
+}));
+```
