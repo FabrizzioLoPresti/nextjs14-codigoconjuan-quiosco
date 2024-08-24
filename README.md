@@ -8,6 +8,7 @@
 - React.js 18
 - Next.js 14
 - Tailwind CSS
+- HeroIcons React
 - Sonner
 - Zustand
 - React Hook Form
@@ -877,4 +878,808 @@ export const useStore = create<Store>((set) => ({
     }));
   },
 }));
+```
+
+### Mostrando los Articulos de la Orden
+
+Vamos a listar los articulos de la orden dentro del componente `order-summary.tsx`. Como este componente va a ser demasiado grande creamos un nuevo compoenten `product-details.tsx`. Ademas instalamos HeroIcons para React con `npm i @heroicons/react`.
+
+order-summary.tsx
+
+```tsx
+"use client";
+
+import { useStore } from "@/store/store";
+import ProductDetails from "./product-details";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El carrito está vacio</p>
+      ) : (
+        <ul>
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+        </ul>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+product-details.tsx
+
+```tsx
+import { MinusIcon, XCircleIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { OrderItem } from "@/types";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  item: OrderItem;
+};
+
+const ProductDetails = ({ item }: Props) => {
+  return (
+    <div className="shadow space-y-1 p-4 bg-white  border-t border-gray-200 ">
+      <div className="space-y-4">
+        <div className="flex justify-between items-start">
+          <p className="text-xl font-bold">{item.name} </p>
+
+          <button type="button" onClick={() => {}}>
+            <XCircleIcon className="text-red-600 h-8 w-8" />
+          </button>
+        </div>
+        <p className="text-2xl text-amber-500 font-black">
+          {formatCurrency(item.price)}
+        </p>
+        <div className="flex gap-5 px-10 py-2 bg-gray-100 w-fit rounded-lg">
+          <button type="button" onClick={() => {}}>
+            <MinusIcon className="h-6 w-6" />
+          </button>
+
+          <p className="text-lg font-black ">{item.quantity}</p>
+
+          <button type="button" onClick={() => {}}>
+            <PlusIcon className="h-6 w-6" />
+          </button>
+        </div>
+        <p className="text-xl font-black text-gray-700">
+          Subtotal: {""}
+          <span className="font-normal">{formatCurrency(item.subtotal)}</span>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ProductDetails;
+```
+
+### Evitar Duplicados
+
+Lo vamos a validar mediante el Store de Zustand, donde vamos a verificar que si el item ya se encuentra en el arreglo entonces vamos a aumentar la cantidad, en caso contrario de que no se encuentre en el arreglo lo vamos a agregar. Como dentro de la funcion de `set(state)` no podemos escribir condicionales, debemos utilizar la funcion `get` propia de Zustand que nos permite obtener el estado actual del Store.
+
+store.ts
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+}
+
+export const useStore = create<Store>((set, get) => ({
+  order: [],
+  addToOrder: (product) => {
+    const { categoryId, image, createdAt, updatedAt, ...data } = product;
+    const currentOrder = get().order;
+
+    const itemExists = currentOrder.some((item) => item.id === data.id);
+
+    set({
+      order: itemExists
+        ? [
+            ...currentOrder.map((item) =>
+              item.id === data.id
+                ? {
+                    ...item,
+                    quantity: item.quantity + 1,
+                    subtotal: item.price * (item.quantity + 1),
+                  }
+                : item
+            ),
+          ]
+        : [
+            ...currentOrder,
+            {
+              ...data,
+              quantity: 1,
+              subtotal: data.price,
+            },
+          ],
+    });
+  },
+}));
+```
+
+### Incremento la cantidad de un articulo
+
+Dentro del Store de Zustand vamos a crear una nueva funcion `increaseQuantity` que nos permita aumentar la cantidad de un articulo en la orden, lo mismo vamos a hacer con la funcion `decreaseQuantity` para disminuir la cantidad de un articulo en la orden.
+
+store.ts
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+  increaseQuantity: (id: Product["id"]) => void;
+  decreaseQuantity: (id: Product["id"]) => void;
+}
+
+export const useStore = create<Store>((set, get) => ({
+  order: [],
+  addToOrder: (product) => {
+    const { categoryId, image, createdAt, updatedAt, ...data } = product;
+    const currentOrder = get().order;
+
+    const itemExists = currentOrder.some((item) => item.id === data.id);
+
+    set({
+      order: itemExists
+        ? [
+            ...currentOrder.map((item) =>
+              item.id === data.id
+                ? {
+                    ...item,
+                    quantity: item.quantity + 1,
+                    subtotal: item.price * (item.quantity + 1),
+                  }
+                : item
+            ),
+          ]
+        : [
+            ...currentOrder,
+            {
+              ...data,
+              quantity: 1,
+              subtotal: data.price,
+            },
+          ],
+    });
+  },
+  increaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity + 1,
+              subtotal: item.price * (item.quantity + 1),
+            }
+          : item
+      ),
+    }));
+  },
+  decreaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity - 1,
+              subtotal: item.price * (item.quantity - 1),
+            }
+          : item
+      ),
+    }));
+  },
+}));
+```
+
+Utilizamos la funcion `increaseQuantity` en el componente `product-details.tsx`:
+
+```tsx
+import { MinusIcon, XCircleIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { useStore } from "@/store/store";
+import { OrderItem } from "@/types";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  item: OrderItem;
+};
+
+const ProductDetails = ({ item }: Props) => {
+  const increaseQuantity = useStore((state) => state.increaseQuantity);
+  const decreaseQuantity = useStore((state) => state.decreaseQuantity);
+
+  return (
+    <div className="shadow space-y-1 p-4 bg-white  border-t border-gray-200 ">
+      <div className="space-y-4">
+        <div className="flex justify-between items-start">
+          <p className="text-xl font-bold">{item.name} </p>
+
+          <button type="button" onClick={() => {}}>
+            <XCircleIcon className="text-red-600 h-8 w-8" />
+          </button>
+        </div>
+        <p className="text-2xl text-amber-500 font-black">
+          {formatCurrency(item.price)}
+        </p>
+        <div className="flex gap-5 px-10 py-2 bg-gray-100 w-fit rounded-lg">
+          <button type="button" onClick={() => decreaseQuantity(item.id)}>
+            <MinusIcon className="h-6 w-6" />
+          </button>
+
+          <p className="text-lg font-black ">{item.quantity}</p>
+
+          <button type="button" onClick={() => increaseQuantity(item.id)}>
+            <PlusIcon className="h-6 w-6" />
+          </button>
+        </div>
+        <p className="text-xl font-black text-gray-700">
+          Subtotal: {""}
+          <span className="font-normal">{formatCurrency(item.subtotal)}</span>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ProductDetails;
+```
+
+### Decrementar la cantidad de un articulo
+
+Vamos a drecrementar la cantidad de un articulo en la orden mediante la funcion `decreaseQuantity` en el componente `product-details.tsx`, para ello en la funcion del Store de Zustand debemos validar que la cantidad del articulo sea mayor a 1, en caso contrario de que sea igual a 1, entonces vamos a eliminar el articulo de la orden.
+
+store.ts
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+  increaseQuantity: (id: Product["id"]) => void;
+  decreaseQuantity: (id: Product["id"]) => void;
+}
+
+export const useStore = create<Store>((set, get) => ({
+  order: [],
+  addToOrder: (product) => {
+    const { categoryId, image, createdAt, updatedAt, ...data } = product;
+    const currentOrder = get().order;
+
+    const itemExists = currentOrder.some((item) => item.id === data.id);
+
+    set({
+      order: itemExists
+        ? [
+            ...currentOrder.map((item) =>
+              item.id === data.id
+                ? {
+                    ...item,
+                    quantity: item.quantity + 1,
+                    subtotal: item.price * (item.quantity + 1),
+                  }
+                : item
+            ),
+          ]
+        : [
+            ...currentOrder,
+            {
+              ...data,
+              quantity: 1,
+              subtotal: data.price,
+            },
+          ],
+    });
+  },
+  increaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity + 1,
+              subtotal: item.price * (item.quantity + 1),
+            }
+          : item
+      ),
+    }));
+  },
+  decreaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity - 1,
+              subtotal: item.price * (item.quantity - 1),
+            }
+          : item
+      ),
+    }));
+  },
+}));
+```
+
+Hacemos uso del Hook de `useMemo` de React para deshabilitar los botones de incrementar y decrementar la cantidad de un articulo en el componente `product-details.tsx`, se utiliza este Hook para que no se vuelva a renderizar el componente cada vez que se incremente o decremente la cantidad de un articulo. En este caso se utiliza para memorizar el resultado de la comparación `(item.quantity === 1)`. Este valor solo se recalculará si `item.quantity` cambia, lo que puede ahorrar tiempo de procesamiento si el componente se renderiza frecuentemente pero la cantidad no cambia. Si no cambia `item.quantity` entonces el valor de `disableDecreaseButton` no se va a volver a calcular, por ejemplo cada vez que se rerenderiza el componente `product-details.tsx` cuando se agrega un nuevo articulo a la orden desde el componente `order-summary.tsx`.
+
+#### Explicacion de `useMemo`
+
+Cuando utilizas `useMemo` para memorizar el resultado de una operación o un cálculo, como en este caso, estás optimizando la renderización del componente al evitar cálculos innecesarios para cada renderizado. Vamos a detallar cómo funciona en el contexto de tu ejemplo:
+
+**Comportamiento de useMemo en tu Componente**
+**Agregar un nuevo producto a la orden:**
+
+- Cuando se agrega un nuevo producto a la orden, la lista de productos se actualiza y el componente de la lista se vuelve a renderizar.
+- Debido a que la lista se vuelve a renderizar, todos los componentes individuales de `ProductDetails` de cada producto en la lista también se vuelven a renderizar.
+
+**Re-render de componentes existentes:**
+
+- Para los productos que ya estaban en la lista antes de agregar el nuevo producto, el componente `ProductDetails` se volverá a renderizar debido al re-render de la lista completa.
+- Sin useMemo: Sin useMemo, cada re-render de un componente `ProductDetails` recalcularía si el botón de aumentar o disminuir cantidad debe estar deshabilitado, incluso si la cantidad del producto no ha cambiado.
+- Con useMemo: Con useMemo, el cálculo para `disableDecreaseButton` y `disableIncreaseButton` se memorizó. Esto significa que estos cálculos solo se ejecutarán de nuevo si la dependencia `item.quantity` cambia.
+
+**¿Por qué es útil useMemo aquí?**
+
+- Evitación de cálculos innecesarios: Cuando se agrega un nuevo producto a la orden y `item.quantity` para los productos existentes no ha cambiado, `useMemo` evitará recalcular si los botones de aumentar o disminuir cantidad deben estar deshabilitados. Esto es especialmente útil si el componente `ProductDetails` se renderiza muchas veces (por ejemplo, en una lista larga de productos).
+
+Mejora de rendimiento: Aunque los cálculos que estás realizando son muy simples (una comparación numérica), evitar incluso estos pequeños cálculos puede mejorar el rendimiento, especialmente si se realizan en múltiples componentes al mismo tiempo.
+
+Resumiendo:
+Sí, cuando utilizas useMemo en el componente `ProductDetails`, los productos que ya existen en la orden no volverán a calcular si el botón estará desactivado o no, a menos que cambie `item.quantity` para ese producto específico. Esto reduce la carga de procesamiento innecesaria en el re-renderizado y optimiza el rendimiento del componente.
+
+product-details.tsx
+
+```tsx
+import { MinusIcon, XCircleIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { useStore } from "@/store/store";
+import { OrderItem } from "@/types";
+import { formatCurrency } from "@/utils";
+import { useMemo } from "react";
+
+type Props = {
+  item: OrderItem;
+};
+
+const MIN_QUANTITY = 1;
+const MAX_QUANTITY = 5;
+
+const ProductDetails = ({ item }: Props) => {
+  const increaseQuantity = useStore((state) => state.increaseQuantity);
+  const decreaseQuantity = useStore((state) => state.decreaseQuantity);
+  const disableDecreaseButton = useMemo(
+    () => item.quantity === MIN_QUANTITY,
+    [item.quantity]
+  );
+  const disableIncreaseButton = useMemo(
+    () => item.quantity === MAX_QUANTITY,
+    [item.quantity]
+  );
+
+  return (
+    <div className="shadow space-y-1 p-4 bg-white  border-t border-gray-200 ">
+      <div className="space-y-4">
+        <div className="flex justify-between items-start">
+          <p className="text-xl font-bold">{item.name} </p>
+
+          <button type="button" onClick={() => {}}>
+            <XCircleIcon className="text-red-600 h-8 w-8" />
+          </button>
+        </div>
+        <p className="text-2xl text-amber-500 font-black">
+          {formatCurrency(item.price)}
+        </p>
+        <div className="flex gap-5 px-10 py-2 bg-gray-100 w-fit rounded-lg">
+          <button
+            type="button"
+            onClick={() => decreaseQuantity(item.id)}
+            disabled={disableDecreaseButton}
+            className="disabled:opacity-20"
+          >
+            <MinusIcon className="h-6 w-6" />
+          </button>
+
+          <p className="text-lg font-black ">{item.quantity}</p>
+
+          <button
+            type="button"
+            onClick={() => increaseQuantity(item.id)}
+            disabled={disableIncreaseButton}
+            className="disabled:opacity-20"
+          >
+            <PlusIcon className="h-6 w-6" />
+          </button>
+        </div>
+        <p className="text-xl font-black text-gray-700">
+          Subtotal: {""}
+          <span className="font-normal">{formatCurrency(item.subtotal)}</span>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ProductDetails;
+```
+
+### Eliminar articulos de la orden
+
+Vamos a definir dentro del Store de Zustand la funcion `removeItem` que nos permita eliminar un articulo de la orden. Luego vamos a utilizar esta funcion en el componente `product-details.tsx`:
+
+store.ts
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+  increaseQuantity: (id: Product["id"]) => void;
+  decreaseQuantity: (id: Product["id"]) => void;
+  removeItem: (id: Product["id"]) => void;
+}
+
+export const useStore = create<Store>((set, get) => ({
+  order: [],
+  addToOrder: (product) => {
+    const { categoryId, image, createdAt, updatedAt, ...data } = product;
+    const currentOrder = get().order;
+
+    const itemExists = currentOrder.some((item) => item.id === data.id);
+
+    set({
+      order: itemExists
+        ? [
+            ...currentOrder.map((item) =>
+              item.id === data.id
+                ? {
+                    ...item,
+                    quantity: item.quantity + 1,
+                    subtotal: item.price * (item.quantity + 1),
+                  }
+                : item
+            ),
+          ]
+        : [
+            ...currentOrder,
+            {
+              ...data,
+              quantity: 1,
+              subtotal: data.price,
+            },
+          ],
+    });
+  },
+  increaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity + 1,
+              subtotal: item.price * (item.quantity + 1),
+            }
+          : item
+      ),
+    }));
+  },
+  decreaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity - 1,
+              subtotal: item.price * (item.quantity - 1),
+            }
+          : item
+      ),
+    }));
+  },
+  removeItem: (id) => {
+    set((state) => ({
+      order: state.order.filter((item) => item.id !== id),
+    }));
+  },
+}));
+```
+
+product-details.tsx
+
+```tsx
+import { useMemo } from "react";
+import { MinusIcon, XCircleIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { useStore } from "@/store/store";
+import { OrderItem } from "@/types";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  item: OrderItem;
+};
+
+const MIN_QUANTITY = 1;
+const MAX_QUANTITY = 5;
+
+const ProductDetails = ({ item }: Props) => {
+  const increaseQuantity = useStore((state) => state.increaseQuantity);
+  const decreaseQuantity = useStore((state) => state.decreaseQuantity);
+  const removeItem = useStore((state) => state.removeItem);
+  const disableDecreaseButton = useMemo(
+    () => item.quantity === MIN_QUANTITY,
+    [item.quantity]
+  );
+  const disableIncreaseButton = useMemo(
+    () => item.quantity === MAX_QUANTITY,
+    [item.quantity]
+  );
+
+  return (
+    <div className="shadow space-y-1 p-4 bg-white  border-t border-gray-200 ">
+      <div className="space-y-4">
+        <div className="flex justify-between items-start">
+          <p className="text-xl font-bold">{item.name} </p>
+
+          <button type="button" onClick={() => removeItem(item.id)}>
+            <XCircleIcon className="text-red-600 h-8 w-8" />
+          </button>
+        </div>
+        <p className="text-2xl text-amber-500 font-black">
+          {formatCurrency(item.price)}
+        </p>
+        <div className="flex gap-5 px-10 py-2 bg-gray-100 w-fit rounded-lg">
+          <button
+            type="button"
+            onClick={() => decreaseQuantity(item.id)}
+            disabled={disableDecreaseButton}
+            className="disabled:opacity-20"
+          >
+            <MinusIcon className="h-6 w-6" />
+          </button>
+
+          <p className="text-lg font-black ">{item.quantity}</p>
+
+          <button
+            type="button"
+            onClick={() => increaseQuantity(item.id)}
+            disabled={disableIncreaseButton}
+            className="disabled:opacity-20"
+          >
+            <PlusIcon className="h-6 w-6" />
+          </button>
+        </div>
+        <p className="text-xl font-black text-gray-700">
+          Subtotal: {""}
+          <span className="font-normal">{formatCurrency(item.subtotal)}</span>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default ProductDetails;
+```
+
+### Calculando el Total a Pagar
+
+Vaos a calcular el total a pagar de la orden en el componente `order-summary.tsx`:
+
+**¿Qué hace useMemo en este caso?**
+
+- Cálculo del Total de la Orden: El código utiliza useMemo para memorizar el resultado del cálculo del total de la orden (total). Este cálculo suma los subtotales de todos los elementos (item.subtotal) en la lista de la orden (order).
+
+- Dependencia del Hook: El cálculo se vuelve a realizar solo si la dependencia order cambia. Es decir, si se agrega o elimina un producto de la orden, o si cambia la cantidad de un producto, provocando un cambio en order.
+
+**¿Por qué utilizar useMemo aquí?**
+**Optimización del Rendimiento:**
+
+- Sin useMemo: Cada vez que el componente OrderSummary se renderiza, el cálculo del total se ejecutaría de nuevo, incluso si la lista order no ha cambiado. Esto puede ser ineficiente si el cálculo es costoso o si se tiene una lista grande de productos.
+- Con useMemo: El cálculo solo se realiza nuevamente si la lista order cambia. Esto significa que mientras la lista de productos en la orden siga igual (sin adiciones, eliminaciones o cambios de cantidad), el valor calculado de total será memorizado y reutilizado en lugar de recalcularse. Esto evita cálculos innecesarios y mejora el rendimiento.
+
+**Cálculo Condicional:**
+
+- useMemo ayuda a que el cálculo del total sea condicional, dependiendo solo de cambios en la lista order. Si order no cambia entre renderizados, el cálculo no se ejecuta de nuevo, lo que puede ahorrar procesamiento y hacer que la aplicación sea más eficiente.
+
+**Ejemplo de Comportamiento:**
+Imaginemos que el componente OrderSummary se renderiza varias veces por algún motivo (por ejemplo, cambios de estado en otros lugares de la aplicación o interacciones del usuario que no afectan a la orden):
+
+- Con useMemo: Si no se ha modificado la lista order, el cálculo de total no se ejecutará de nuevo. El componente reutilizará el valor memorizado de total, optimizando así el rendimiento.
+
+- Sin useMemo: Cada renderizado del componente recalcularía el total, sumando nuevamente los subtotales de los productos en la lista order, incluso si no ha cambiado, resultando en cálculos redundantes e innecesarios.
+
+**Conclusión**
+Usar useMemo en este componente es una buena práctica porque:
+
+- Previene cálculos innecesarios: Al recalcular el total solo cuando cambia order, se mejora el rendimiento y se evita procesamiento innecesario.
+- Optimiza la renderización: Esto es particularmente útil en aplicaciones React donde el rendimiento es importante, especialmente cuando se manejan listas de datos que pueden ser grandes o costosas de procesar.
+
+En resumen, useMemo asegura que el cálculo del total de la orden solo se ejecute cuando sea necesario, es decir, cuando la lista de productos en la orden cambie, mejorando así la eficiencia de la aplicación.
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { formatCurrency } from "@/utils";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El carrito está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+        </div>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+### Creando el Modelo de Ordenes
+
+Veamos como almacenar las Ordenes en la Base de Datos, para ello vamos a crear un nuevo modelo de `Order` en el archivo `prisma/schema.prisma`, ademas de crear una Tabla Pivote `OrderProduct` que va a relacionar las ordenes con los productos:
+
+```prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  slug      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  Product   Product[]
+}
+
+model Product {
+  id           Int            @id @default(autoincrement())
+  name         String
+  price        Float
+  image        String
+  categoryId   Int
+  category     Category       @relation(fields: [categoryId], references: [id])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  OrderProduct OrderProduct[]
+}
+
+model Order {
+  id           Int            @id @default(autoincrement())
+  name         String
+  total        Float
+  status       Boolean        @default(false)
+  orderReadyAt DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  OrderProduct OrderProduct[]
+}
+
+model OrderProduct {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  order     Order   @relation(fields: [orderId], references: [id])
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+```
+
+Una vez realizados los cambios en el archivo `prisma/schema.prisma`, vamos a aplicar las migraciones a la Base de Datos:
+
+```bash
+npx prisma migrate dev --name add-orders
+```
+
+### Introduccion a los Server Actions de Next.js 14
+
+Anteriormente para insertar los datos en nuestra base de datos debiamos crear un objeto de tipo JSON, enviarlo por metodo POST a la URL de nuestra API y recien ahi insertar los datos. Pero con la llegada de Next.js 14, se introducen los `Server Actions` que nos permiten ejecutar codigo del lado del servidor de Next.js, lo cual nos permite realizar operaciones de lectura y escritura en la base de datos de forma directa, sin la necesidad de enviar los datos por medio de una API.
+
+- Los `Server Actions` son funciones asincronas que se ejecutan en el servidor, se pueden utilizar con clientes de Componente y Servidor.
+- Se utilizan para crear datos o mutarlos, y estan muy unidos al CRUD.
+- Utilizan la directiva `use server`, que en el caso de Componentes de Servidor debe ser la primer linea de la funcion, mientras que en Client Components se deben importar de otro archivo, que en la aprte superior debe tener esta directiva.
+- Los `Server Actions` deben estar dentro del atributo `action={}` de un formulario `<form>`.
+- Tambien pueden ser llamados dentro de un `useEffect` o un `onClick` de un boton.
+- No son exclusivos de `Next.js 14 o Next.js 15`, ya que `React` en la `Version 19` los va a tener incorporados.
+
+Dicho `action` lo vamos a implementar dentro de un `form` con un `button` de tipo `submit` en el componente `order-summary.tsx`:
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { formatCurrency } from "@/utils";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El pedido está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+
+          <form action="" className="w-full mt-10 space-y-5">
+            <button
+              type="submit"
+              value="Confirmar pedido"
+              className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
+            />
+          </form>
+        </div>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
 ```
