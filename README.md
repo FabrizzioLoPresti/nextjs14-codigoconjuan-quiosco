@@ -1671,9 +1671,10 @@ const OrderSummary = (props: Props) => {
           <form action="" className="w-full mt-10 space-y-5">
             <button
               type="submit"
-              value="Confirmar pedido"
               className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
-            />
+            >
+              Confirmar pedido
+            </button>
           </form>
         </div>
       )}
@@ -1682,4 +1683,394 @@ const OrderSummary = (props: Props) => {
 };
 
 export default OrderSummary;
+```
+
+### Creando un Server Action
+
+Dentro del Componente `order-summary.tsx` vamos a llamar a un `Server Action` que nos permita insertar los datos de la orden en la Base de Datos, para ello vamos a utilizar la directiva `useServer` dentro del archivo de actions `src/actions/actions.ts` que va a ser llamada cuando se envie el formulario:
+
+src/actions/actions.ts
+
+```ts
+"use server";
+
+export const createOrder = async () => {
+  console.log("Creating order...");
+};
+```
+
+order-summary.tsx
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { formatCurrency } from "@/utils";
+import { createOrder } from "@/actions/actions";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    await createOrder();
+  };
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El pedido está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+
+          <form action={handleCreateOrder} className="w-full mt-10 space-y-5">
+            <button
+              type="submit"
+              className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
+            >
+              Confirmar pedido
+            </button>
+          </form>
+        </div>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+### Recuperar Datos de Formulario con FormData
+
+Vamos a recuperar los datos del formulario con `FormData` en el `Server Action` que se encuentra en el archivo `src/actions/actions.ts`:
+
+src/actions/actions.ts
+
+```ts
+"use server";
+
+export const createOrder = async (name: string) => {
+  console.log(name);
+};
+```
+
+order-summary.tsx
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { formatCurrency } from "@/utils";
+import { createOrder } from "@/actions/actions";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    await createOrder(formData.get("name") as string);
+  };
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El pedido está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+
+          <form action={handleCreateOrder} className="w-full mt-10 space-y-5">
+            <input
+              type="text"
+              name="name"
+              id="name"
+              placeholder="Tu nombre"
+              className="bg-white border border-gray-100 p-2 w-full"
+            />
+            <button
+              type="submit"
+              className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
+            >
+              Confirmar pedido
+            </button>
+          </form>
+        </div>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+### Validacion de Datos con ZOD en el Cliente
+
+Vamos a realizar validaciones de datos con `Zod` tanto del lado del Cliente como del lado del Servidor. Primero vamos a instalar la libreria de `Zod`:
+
+```bash
+npm install zod
+```
+
+Luego vamos a crear un esquema de validacion en el archivo `src/schemas/order.ts`:
+
+src/schemas/index.ts
+
+```ts
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  name: z.string().min(1, "El nombre es requerido"),
+});
+```
+
+src/actions/actions.ts
+
+```ts
+"use server";
+
+export const createOrder = async () => {
+  console.log("Creating order...");
+};
+```
+
+order-summary.tsx
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import ProductDetails from "./product-details";
+import { OrderSchema } from "@/schema";
+import { createOrder } from "@/actions/actions";
+import { useStore } from "@/store/store";
+import { formatCurrency } from "@/utils";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    const data = {
+      name: formData.get("name"),
+    };
+
+    const result = OrderSchema.safeParse(data);
+    console.log(result);
+
+    await createOrder();
+  };
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El pedido está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+
+          <form action={handleCreateOrder} className="w-full mt-10 space-y-5">
+            <input
+              type="text"
+              name="name"
+              id="name"
+              placeholder="Tu nombre"
+              className="bg-white border border-gray-100 p-2 w-full"
+            />
+            <button
+              type="submit"
+              className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
+            >
+              Confirmar pedido
+            </button>
+          </form>
+        </div>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+### Mostrando Errores de Validacion con Sonner
+
+Vamos a mostrar los errores de validacion con `Sonner`, primero vamos a instalar la libreria de `Sonner`:
+
+```bash
+npm install sonner
+```
+
+Mostremos los errores de validacion en el componente `order-summary.tsx`:
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import { Toaster, toast } from "sonner";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { createOrder } from "@/actions/actions";
+import { OrderSchema } from "@/schema";
+import { formatCurrency } from "@/utils";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    const data = {
+      name: formData.get("name"),
+    };
+
+    const result = OrderSchema.safeParse(data);
+
+    if (!result.success) {
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    await createOrder();
+  };
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El pedido está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+
+          <form action={handleCreateOrder} className="w-full mt-10 space-y-5">
+            <input
+              type="text"
+              name="name"
+              id="name"
+              placeholder="Tu nombre"
+              className="bg-white border border-gray-100 p-2 w-full"
+            />
+            <button
+              type="submit"
+              className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
+            >
+              Confirmar pedido
+            </button>
+          </form>
+          <Toaster position="top-right" richColors />
+        </div>
+      )}
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```
+
+### Validacion de Datos con Zod en el Servidor
+
+Anteriormente validamos los datos del formulario con `Zod` del lado del Cliente y mostramos una notificacion de error con `Sonner`. Ahora vamos a realizar la validacion de los datos del formulario con `Zod` del lado del Servidor, para ello vamos a modificar el `Server Action` que se encuentra en el archivo `src/actions/actions.ts`:
+
+src/actions/actions.ts
+
+```ts
+"use server";
+
+import { OrderSchema } from "@/schema";
+
+export const createOrder = async (data: unknown) => {
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+```
+
+order-summary.tsx
+
+```tsx
+const handleCreateOrder = async (formData: FormData) => {
+  const data = {
+    name: formData.get("name"),
+  };
+
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    result.error.issues.forEach((issue) => {
+      toast.error(issue.message);
+    });
+    return;
+  }
+
+  const response = await createOrder(data);
+
+  if (response?.status === 400) {
+    response.body.forEach((issue) => {
+      toast.error(issue.message);
+    });
+    return;
+  }
+};
 ```

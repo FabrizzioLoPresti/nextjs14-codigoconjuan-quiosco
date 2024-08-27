@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import { Toaster, toast } from "sonner";
 import ProductDetails from "./product-details";
 import { useStore } from "@/store/store";
+import { createOrder } from "@/actions/actions";
+import { OrderSchema } from "@/schema";
 import { formatCurrency } from "@/utils";
 
 type Props = {};
@@ -12,6 +15,30 @@ const OrderSummary = (props: Props) => {
   const total = useMemo(() => {
     return order.reduce((total, item) => total + item.subtotal, 0);
   }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    const data = {
+      name: formData.get("name"),
+    };
+
+    const result = OrderSchema.safeParse(data);
+
+    if (!result.success) {
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    const response = await createOrder(data);
+
+    if (response?.status === 400) {
+      response.body.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+  };
 
   return (
     <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
@@ -28,13 +55,22 @@ const OrderSummary = (props: Props) => {
             <span className="font-bold">{formatCurrency(total)}</span>
           </p>
 
-          <form action="" className="w-full mt-10 space-y-5">
+          <form action={handleCreateOrder} className="w-full mt-10 space-y-5">
+            <input
+              type="text"
+              name="name"
+              id="name"
+              placeholder="Tu nombre"
+              className="bg-white border border-gray-100 p-2 w-full"
+            />
             <button
               type="submit"
-              value="Confirmar pedido"
               className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
-            />
+            >
+              Confirmar pedido
+            </button>
           </form>
+          <Toaster position="top-right" richColors />
         </div>
       )}
     </aside>
