@@ -2074,3 +2074,315 @@ const handleCreateOrder = async (formData: FormData) => {
   }
 };
 ```
+
+### Validando el resto de la Orden
+
+Vamos a validar el resto de la orden en el `schema` de `Zod` en el archivo `src/schemas/order.ts`, debemos copiar los tipos de `OrderItem` desde el archivo `src/types/index.ts`, ya que no es facil utilizar en Zod los tipos de datos del schema de Prisma:
+
+src/schemas/order.ts
+
+```ts
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  name: z.string().min(1, "El nombre es requerido"),
+  total: z.number().min(1, "El total es requerido"),
+  order: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+      price: z.number(),
+      quantity: z.number(),
+      subtotal: z.number(),
+    })
+  ),
+});
+```
+
+Luego agregamos en el componente `order-summary.tsx` la validacion de los productos de la orden:
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import { Toaster, toast } from "sonner";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { createOrder } from "@/actions/actions";
+import { OrderSchema } from "@/schema";
+import { formatCurrency } from "@/utils";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    const data = {
+      name: formData.get("name"),
+      total,
+      order,
+    };
+
+    const result = OrderSchema.safeParse(data);
+
+    if (!result.success) {
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    const response = await createOrder(data);
+
+    if (response?.status === 400) {
+      response.body.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+  };
+
+  return (
+  );
+};
+
+export default OrderSummary;
+```
+
+### Ingresar datos a la base de datos
+
+Vamos a ingresar los datos a la base de datos en el `Server Action` que se encuentra en el archivo `src/actions/actions.ts`, una vez validados los datos tanto en cliente como en servidor utilizando `Zod`:
+
+src/actions/actions.ts
+
+```ts
+"use server";
+
+import prismaClient from "@/libs/prisma";
+import { OrderSchema } from "@/schema";
+
+export const createOrder = async (data: unknown) => {
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.order.create({
+      data: {
+        name: result.data.name,
+        total: result.data.total,
+        OrderProduct: {
+          create: result.data.order.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+
+    console.log(response);
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+```
+
+### Evitar Ordenes Duplicadas
+
+Vamos a limpiar la orden una vez que se haya creado la orden en la base de datos, esto lo vamos a realizar luego de que la respuesta de la creacion de la orden sea exitosa, dentro del componente `order-summary.tsx`, para ello primero vamos a crear la funcion para limpiar el estado dentro de `store.ts`:
+
+store.ts
+
+```ts
+import { create } from "zustand";
+import { OrderItem } from "@/types";
+import { Product } from "@prisma/client";
+
+interface Store {
+  order: OrderItem[];
+  addToOrder: (product: Product) => void;
+  increaseQuantity: (id: Product["id"]) => void;
+  decreaseQuantity: (id: Product["id"]) => void;
+  removeItem: (id: Product["id"]) => void;
+  clearOrder: () => void;
+}
+
+export const useStore = create<Store>((set, get) => ({
+  order: [],
+  addToOrder: (product) => {
+    const { categoryId, image, createdAt, updatedAt, ...data } = product;
+    const currentOrder = get().order;
+
+    const itemExists = currentOrder.some((item) => item.id === data.id);
+
+    set({
+      order: itemExists
+        ? [
+            ...currentOrder.map((item) =>
+              item.id === data.id
+                ? {
+                    ...item,
+                    quantity: item.quantity + 1,
+                    subtotal: item.price * (item.quantity + 1),
+                  }
+                : item
+            ),
+          ]
+        : [
+            ...currentOrder,
+            {
+              ...data,
+              quantity: 1,
+              subtotal: data.price,
+            },
+          ],
+    });
+  },
+  increaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity + 1,
+              subtotal: item.price * (item.quantity + 1),
+            }
+          : item
+      ),
+    }));
+  },
+  decreaseQuantity: (id) => {
+    set((state) => ({
+      order: state.order.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              quantity: item.quantity - 1,
+              subtotal: item.price * (item.quantity - 1),
+            }
+          : item
+      ),
+    }));
+  },
+  removeItem: (id) => {
+    set((state) => ({
+      order: state.order.filter((item) => item.id !== id),
+    }));
+  },
+  clearOrder: () => {
+    set({
+      order: [],
+    });
+  },
+}));
+```
+
+order-summary.tsx
+
+```tsx
+"use client";
+
+import { useMemo } from "react";
+import { Toaster, toast } from "sonner";
+import ProductDetails from "./product-details";
+import { useStore } from "@/store/store";
+import { createOrder } from "@/actions/actions";
+import { OrderSchema } from "@/schema";
+import { formatCurrency } from "@/utils";
+
+type Props = {};
+
+const OrderSummary = (props: Props) => {
+  const order = useStore((state) => state.order);
+  const clearOrder = useStore((state) => state.clearOrder);
+  const total = useMemo(() => {
+    return order.reduce((total, item) => total + item.subtotal, 0);
+  }, [order]);
+
+  const handleCreateOrder = async (formData: FormData) => {
+    const data = {
+      name: formData.get("name"),
+      total,
+      order,
+    };
+
+    const result = OrderSchema.safeParse(data);
+
+    if (!result.success) {
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    const response = await createOrder(data);
+
+    if (response?.status === 400) {
+      response.body.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    if (response?.status === 500) {
+      response.body.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    toast.success("Pedido creado exitosamente");
+    clearOrder();
+  };
+
+  return (
+    <aside className="lg:h-screen lg:overflow-y-scroll md:w-64 lg:w-96 p-5">
+      <h1 className="text-4xl text-center font-black">Mi Pedido</h1>
+      {order.length === 0 ? (
+        <p className="text-center my-10">El pedido está vacio</p>
+      ) : (
+        <div className="mt-5">
+          {order.map((item) => (
+            <ProductDetails key={item.id} item={item} />
+          ))}
+          <p className="text-2xl mt-20 text-center">
+            Total a pagar: {""}
+            <span className="font-bold">{formatCurrency(total)}</span>
+          </p>
+
+          <form action={handleCreateOrder} className="w-full mt-10 space-y-5">
+            <input
+              type="text"
+              name="name"
+              id="name"
+              placeholder="Tu nombre"
+              className="bg-white border border-gray-100 p-2 w-full"
+            />
+            <button
+              type="submit"
+              className="py-2 rounded uppercase text-white font-bold bg-black w-full text-center cursor-pointer"
+            >
+              Confirmar pedido
+            </button>
+          </form>
+        </div>
+      )}
+      <Toaster position="top-right" richColors />
+    </aside>
+  );
+};
+
+export default OrderSummary;
+```

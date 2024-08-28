@@ -12,6 +12,7 @@ type Props = {};
 
 const OrderSummary = (props: Props) => {
   const order = useStore((state) => state.order);
+  const clearOrder = useStore((state) => state.clearOrder);
   const total = useMemo(() => {
     return order.reduce((total, item) => total + item.subtotal, 0);
   }, [order]);
@@ -19,6 +20,8 @@ const OrderSummary = (props: Props) => {
   const handleCreateOrder = async (formData: FormData) => {
     const data = {
       name: formData.get("name"),
+      total,
+      order,
     };
 
     const result = OrderSchema.safeParse(data);
@@ -38,6 +41,16 @@ const OrderSummary = (props: Props) => {
       });
       return;
     }
+
+    if (response?.status === 500) {
+      response.body.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    toast.success("Pedido creado exitosamente");
+    clearOrder();
   };
 
   return (
@@ -70,9 +83,9 @@ const OrderSummary = (props: Props) => {
               Confirmar pedido
             </button>
           </form>
-          <Toaster position="top-right" richColors />
         </div>
       )}
+      <Toaster position="top-right" richColors />
     </aside>
   );
 };
