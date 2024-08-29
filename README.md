@@ -2386,3 +2386,288 @@ const OrderSummary = (props: Props) => {
 
 export default OrderSummary;
 ```
+
+### Creando las Rutas y el Layout
+
+Dentro de `/app` vamos a crear un panel de administracion por lo cual vamos a crear una nueva carpeta llamada `admin` y dentro de esta carpeta vamos a crear un archivo llamado `layout.tsx` y otro llamado `page.tsx` dentro de `/app/admin/orders`:
+
+```bash
+mkdir app/admin
+touch app/admin/page.tsx
+touch app/admin/layout.tsx
+```
+
+En el archivo `layout.tsx` vamos a crear un layout para el panel de administracion:
+
+app/admin/layout.tsx
+
+```tsx
+import { Toaster } from "sonner";
+import AdminSidebar from "@/components/admin/admin-sidebar";
+
+export default async function AdminLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <>
+      <div className="md:flex">
+        <aside className="md:w-72 md:h-screen bg-white">
+          <AdminSidebar />
+        </aside>
+
+        <main className="md:flex-1 md:h-screen md:overflow-y-scroll bg-gray-100 p-5">
+          {children}
+        </main>
+      </div>
+
+      <Toaster position="top-right" richColors />
+    </>
+  );
+}
+```
+
+En el archivo `page.tsx` vamos a crear una pagina para el panel de administracion:
+
+app/admin/orders/page.tsx
+
+```tsx
+type Props = {};
+
+export default function AdminOrdersPage({}: Props) {
+  return <div>AdminOrdersPage</div>;
+}
+```
+
+### Creando un componente re-utilizable para los titulos
+
+Creamos dentro de la carpeta `/components/ui` un archivo llamado `heading.tsx`:
+
+/components/ui/heading.tsx
+
+```tsx
+type Props = {
+  children: React.ReactNode;
+};
+
+const Heading = ({ children }: Props) => {
+  return <h1 className="text-2xl my-10">{children}</h1>;
+};
+
+export default Heading;
+```
+
+### Navegacion en el panel de Administracion
+
+Dentro de `/src/components/admin-sidebar.tsx` vamos a crear una navegacion para el panel de administracion:
+
+```tsx
+import Logo from "../icons/logo";
+import AdminRoute from "./admin-route";
+
+type Props = {};
+
+const adminNavigation = [
+  { url: "/admin/orders", text: "Ordenes", blank: false },
+  { url: "/admin/products", text: "Productos", blank: false },
+  { url: "/orders/cafe", text: "Ver Quiosco", blank: true },
+];
+
+const AdminSidebar = (props: Props) => {
+  return (
+    <>
+      <Logo />
+      <div className="space-y-3 ">
+        <p className="mt-10 uppercase font-bold text-sm text-gray-600 text-center">
+          Navegación
+        </p>
+        <nav className="flex flex-col">
+          {adminNavigation.map((link) => (
+            <AdminRoute key={link.url} link={link}></AdminRoute>
+          ))}
+        </nav>
+      </div>
+    </>
+  );
+};
+
+export default AdminSidebar;
+```
+
+En `/src/components/admin-route.tsx`:
+
+```tsx
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+type Props = {
+  link: {
+    url: string;
+    text: string;
+    blank: boolean;
+  };
+};
+
+const AdminRoute = ({ link }: Props) => {
+  const pathname = usePathname();
+
+  return (
+    <Link
+      href={link.url}
+      className={`font-bold text-lg border-t border-gray-200 p-3 last-of-type:border-b ${
+        pathname === link.url && "bg-amber-400"
+      }`}
+      target={link.blank ? "_blank" : "_self"}
+    >
+      {link.text}
+    </Link>
+  );
+};
+
+export default AdminRoute;
+```
+
+### Obtener las ordenes pendientes
+
+Dentro de `app/admin/orders/page.tsx` vamos a obtener las ordenes pendientes y mostrarlas:
+
+```tsx
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {};
+
+const getPendingOrders = async () => {
+  const response = await prismaClient.order.findMany({
+    where: {
+      status: false,
+    },
+    include: {
+      OrderProduct: {
+        include: {
+          product: true,
+        },
+      },
+    },
+  });
+  return response;
+};
+
+export default async function AdminOrdersPage({}: Props) {
+  const pendingOrders = await getPendingOrders();
+  console.log(pendingOrders);
+  return (
+    <>
+      <Heading>Administrador de Ordenes</Heading>
+    </>
+  );
+}
+```
+
+### Mostrar las ordenes pendientes
+
+En el archivo `app/admin/orders/page.tsx` vamos a mostrar las ordenes pendientes:
+
+```tsx
+import OrderCard from "@/components/order/order-card";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {};
+
+const getPendingOrders = async () => {
+  const response = await prismaClient.order.findMany({
+    where: {
+      status: false,
+    },
+    include: {
+      OrderProduct: {
+        include: {
+          product: true,
+        },
+      },
+    },
+  });
+  return response;
+};
+
+export default async function AdminOrdersPage({}: Props) {
+  const pendingOrders = await getPendingOrders();
+  console.log(pendingOrders);
+  return (
+    <>
+      <Heading>Administrador de Ordenes</Heading>
+
+      {pendingOrders.length > 0 ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 mt-5">
+          {pendingOrders.map((order) => (
+            <OrderCard key={order.id} order={order} />
+          ))}
+        </div>
+      ) : (
+        <p>No hay ordenes pendientes</p>
+      )}
+    </>
+  );
+}
+```
+
+En el nuevo componente de `components/order/order-card.tsx` vamos a mostrar los detalles de la orden:
+
+```tsx
+import { OrderWithProducts } from "@/types";
+
+type Props = {
+  order: OrderWithProducts;
+};
+
+const OrderCard = ({ order }: Props) => {
+  return (
+    <section
+      aria-labelledby="summary-heading"
+      className="mt-16 rounded-lg bg-gray-50 px-4 py-6 sm:p-6  lg:mt-0 lg:p-8 space-y-4"
+    >
+      <p className="text-2xl font-medium text-gray-900">Cliente: </p>
+      <p className="text-lg font-medium text-gray-900">Productos Ordenados:</p>
+      <dl className="mt-6 space-y-4">
+        <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+          <dt className="text-base font-medium text-gray-900">
+            Total a Pagar:
+          </dt>
+          <dd className="text-base font-medium text-gray-900">{}</dd>
+        </div>
+      </dl>
+
+      <form>
+        <input
+          type="submit"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+          value="Marcar Orden Completada"
+        />
+      </form>
+    </section>
+  );
+};
+
+export default OrderCard;
+```
+
+Vamos a generar los Types en el archivo `src/types/index.d.ts` haciendo uso de los tipos de datos de Prisma para poder tener tipado en los componentes y mostrar los datos de forma correcta:
+
+```ts
+import { Order, OrderProduct, Product } from "@prisma/client";
+
+export type OrderItem = Pick<Product, "id" | "name" | "price"> & {
+  quantity: number;
+  subtotal: number;
+};
+
+export type OrderWithProducts = Order & {
+  OrderProduct: (OrderProduct & {
+    product: Product;
+  })[];
+};
+```
