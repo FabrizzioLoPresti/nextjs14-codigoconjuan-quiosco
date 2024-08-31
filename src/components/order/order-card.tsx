@@ -1,4 +1,6 @@
+import { completeOrder } from "@/actions/actions";
 import { OrderWithProducts } from "@/types";
+import { formatCurrency } from "@/utils";
 
 type Props = {
   order: OrderWithProducts;
@@ -15,15 +17,33 @@ const OrderCard = ({ order }: Props) => {
       </p>
       <p className="text-lg font-medium text-gray-900">Productos Ordenados:</p>
       <dl className="mt-6 space-y-4">
+        {order.OrderProduct.map((orderProduct) => (
+          <div
+            key={orderProduct.id}
+            className="flex items-center gap-2 border-t border-gray-200 pt-4"
+          >
+            <dt className="flex items-center text-sm text-gray-600">
+              <span className="font-black">
+                ( {orderProduct.quantity} ) {""}
+              </span>
+            </dt>
+            <dd className="text-sm font-medium text-gray-900">
+              {orderProduct.product.name}
+            </dd>
+          </div>
+        ))}
         <div className="flex items-center justify-between border-t border-gray-200 pt-4">
           <dt className="text-base font-medium text-gray-900">
             Total a Pagar:
           </dt>
-          <dd className="text-base font-medium text-gray-900">{}</dd>
+          <dd className="text-base font-medium text-gray-900">
+            {formatCurrency(order.total)}
+          </dd>
         </div>
       </dl>
 
-      <form>
+      <form action={completeOrder}>
+        <input type="hidden" name="order_id" value={order.id} />
         <input
           type="submit"
           className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"

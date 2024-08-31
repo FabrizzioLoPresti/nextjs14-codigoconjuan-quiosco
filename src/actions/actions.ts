@@ -1,7 +1,8 @@
 "use server";
 
 import prismaClient from "@/libs/prisma";
-import { OrderSchema } from "@/schema";
+import { OrderIdSchema, OrderSchema } from "@/schema";
+import { revalidatePath } from "next/cache";
 
 export const createOrder = async (data: unknown) => {
   const result = OrderSchema.safeParse(data);
@@ -32,6 +33,41 @@ export const createOrder = async (data: unknown) => {
     return {
       status: 500,
       body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+
+export const completeOrder = async (formData: FormData) => {
+  try {
+    const data = {
+      orderId: formData.get("order_id"),
+    };
+
+    const result = OrderIdSchema.safeParse(data);
+
+    if (!result.success) {
+      return {
+        status: 400,
+        body: result.error.issues,
+      };
+    }
+
+    const response = await prismaClient.order.update({
+      where: {
+        id: result.data.orderId,
+      },
+      data: {
+        status: true,
+        orderReadyAt: new Date(),
+      },
+    });
+
+    console.log(response);
+    revalidatePath("/admin/orders");
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al completar el pedido" }],
     };
   }
 };

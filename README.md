@@ -2671,3 +2671,704 @@ export type OrderWithProducts = Order & {
   })[];
 };
 ```
+
+### Mostrar el Contenido de la Orden
+
+Vamos a mostrar el contenido de la orden en el componente `order-card.tsx`:
+
+```tsx
+import { OrderWithProducts } from "@/types";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  order: OrderWithProducts;
+};
+
+const OrderCard = ({ order }: Props) => {
+  return (
+    <section
+      aria-labelledby="summary-heading"
+      className="mt-16 rounded-lg bg-gray-50 px-4 py-6 sm:p-6  lg:mt-0 lg:p-8 space-y-4"
+    >
+      <p className="text-2xl font-medium text-gray-900">
+        Cliente: {order.name}
+      </p>
+      <p className="text-lg font-medium text-gray-900">Productos Ordenados:</p>
+      <dl className="mt-6 space-y-4">
+        {order.OrderProduct.map((orderProduct) => (
+          <div
+            key={orderProduct.id}
+            className="flex items-center gap-2 border-t border-gray-200 pt-4"
+          >
+            <dt className="flex items-center text-sm text-gray-600">
+              <span className="font-black">
+                ({orderProduct.quantity}) {""}
+              </span>
+            </dt>
+            <dd className="text-sm font-medium text-gray-900">
+              {orderProduct.product.name}
+            </dd>
+          </div>
+        ))}
+        <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+          <dt className="text-base font-medium text-gray-900">
+            Total a Pagar:
+          </dt>
+          <dd className="text-base font-medium text-gray-900">
+            {formatCurrency(order.total)}
+          </dd>
+        </div>
+      </dl>
+
+      <form>
+        <input
+          type="submit"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+          value="Marcar Orden Completada"
+        />
+      </form>
+    </section>
+  );
+};
+
+export default OrderCard;
+```
+
+### Creando la accion para completar ordenes
+
+El componente `order-card.tsx` es un Server Component, por lo cual podemos utilizar las acciones o `Server Actions` directamente en los componentes de servidor, para ello vamos a crear una accion que nos permita marcar una orden como completada en el archivo `src/actions/actions.ts`:
+
+```ts
+"use server";
+
+import prismaClient from "@/libs/prisma";
+import { OrderSchema } from "@/schema";
+
+export const createOrder = async (data: unknown) => {
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.order.create({
+      data: {
+        name: result.data.name,
+        total: result.data.total,
+        OrderProduct: {
+          create: result.data.order.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+
+    console.log(response);
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+
+export const completeOrder = async () => {
+  console.log("Desde server");
+};
+```
+
+En el componente `order-card.tsx` vamos a llamar a la accion `completeOrder`:
+
+```tsx
+import { completeOrder } from "@/actions/actions";
+import { OrderWithProducts } from "@/types";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  order: OrderWithProducts;
+};
+
+const OrderCard = ({ order }: Props) => {
+  return (
+    <section
+      aria-labelledby="summary-heading"
+      className="mt-16 rounded-lg bg-gray-50 px-4 py-6 sm:p-6  lg:mt-0 lg:p-8 space-y-4"
+    >
+      <p className="text-2xl font-medium text-gray-900">
+        Cliente: {order.name}
+      </p>
+      <p className="text-lg font-medium text-gray-900">Productos Ordenados:</p>
+      <dl className="mt-6 space-y-4">
+        {order.OrderProduct.map((orderProduct) => (
+          <div
+            key={orderProduct.id}
+            className="flex items-center gap-2 border-t border-gray-200 pt-4"
+          >
+            <dt className="flex items-center text-sm text-gray-600">
+              <span className="font-black">
+                ({orderProduct.quantity}) {""}
+              </span>
+            </dt>
+            <dd className="text-sm font-medium text-gray-900">
+              {orderProduct.product.name}
+            </dd>
+          </div>
+        ))}
+        <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+          <dt className="text-base font-medium text-gray-900">
+            Total a Pagar:
+          </dt>
+          <dd className="text-base font-medium text-gray-900">
+            {formatCurrency(order.total)}
+          </dd>
+        </div>
+      </dl>
+
+      <form action={completeOrder}>
+        <input
+          type="submit"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+          value="Marcar Orden Completada"
+        />
+      </form>
+    </section>
+  );
+};
+
+export default OrderCard;
+```
+
+### Marcar ordenes completas y validacion
+
+Vamos a crear el codigo en el archivo `src/actions/actions.ts` para marcar las ordenes como completadas, ademas de consultar nuevamente los datos luego de la peticion POST utilizando la `Revalidacion de Datos de Next.js`:
+
+```ts
+"use server";
+
+import prismaClient from "@/libs/prisma";
+import { OrderIdSchema, OrderSchema } from "@/schema";
+import { revalidatePath } from "next/cache";
+
+export const createOrder = async (data: unknown) => {
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.order.create({
+      data: {
+        name: result.data.name,
+        total: result.data.total,
+        OrderProduct: {
+          create: result.data.order.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+
+    console.log(response);
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+
+export const completeOrder = async (formData: FormData) => {
+  try {
+    const data = {
+      orderId: formData.get("order_id"),
+    };
+
+    const result = OrderIdSchema.safeParse(data);
+
+    if (!result.success) {
+      return {
+        status: 400,
+        body: result.error.issues,
+      };
+    }
+
+    const response = await prismaClient.order.update({
+      where: {
+        id: result.data.orderId,
+      },
+      data: {
+        status: true,
+        orderReadyAt: new Date(),
+      },
+    });
+
+    console.log(response);
+    revalidatePath("/admin/orders");
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al completar el pedido" }],
+    };
+  }
+};
+```
+
+En el `action` validamos mediante un `Schema de Zod` el `id` de la orden que se va a marcar como completada:
+
+```ts
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  name: z.string().min(1, "El nombre es requerido"),
+  total: z.number().min(1, "El total es requerido"),
+  order: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+      price: z.number(),
+      quantity: z.number(),
+      subtotal: z.number(),
+    })
+  ),
+});
+
+export const OrderIdSchema = z.object({
+  orderId: z
+    .string()
+    .transform((value) => parseInt(value))
+    .refine((value) => !isNaN(value) || value < 0, {
+      message: "El id de la orden es inválido",
+    }),
+});
+```
+
+En el componente `order-card.tsx` vamos a crear un `input:hidden` para enviar el `id` de la orden al momento de marcarla como completada hacia el `Server Action`:
+
+```tsx
+import { completeOrder } from "@/actions/actions";
+import { OrderWithProducts } from "@/types";
+import { formatCurrency } from "@/utils";
+
+type Props = {
+  order: OrderWithProducts;
+};
+
+const OrderCard = ({ order }: Props) => {
+  return (
+    <section
+      aria-labelledby="summary-heading"
+      className="mt-16 rounded-lg bg-gray-50 px-4 py-6 sm:p-6  lg:mt-0 lg:p-8 space-y-4"
+    >
+      <p className="text-2xl font-medium text-gray-900">
+        Cliente: {order.name}
+      </p>
+      <p className="text-lg font-medium text-gray-900">Productos Ordenados:</p>
+      <dl className="mt-6 space-y-4">
+        {order.OrderProduct.map((orderProduct) => (
+          <div
+            key={orderProduct.id}
+            className="flex items-center gap-2 border-t border-gray-200 pt-4"
+          >
+            <dt className="flex items-center text-sm text-gray-600">
+              <span className="font-black">
+                ( {orderProduct.quantity} ) {""}
+              </span>
+            </dt>
+            <dd className="text-sm font-medium text-gray-900">
+              {orderProduct.product.name}
+            </dd>
+          </div>
+        ))}
+        <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+          <dt className="text-base font-medium text-gray-900">
+            Total a Pagar:
+          </dt>
+          <dd className="text-base font-medium text-gray-900">
+            {formatCurrency(order.total)}
+          </dd>
+        </div>
+      </dl>
+
+      <form action={completeOrder}>
+        <input type="hidden" name="order_id" value={order.id} />
+        <input
+          type="submit"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+          value="Marcar Orden Completada"
+        />
+      </form>
+    </section>
+  );
+};
+
+export default OrderCard;
+```
+
+### Revalidacion de Datos en Next.js
+
+La `Revalidacion de Datos` en Next.js nos permite actualizar los datos de una pagina de forma automatica, eliminando los datos cacheados y haciendo un re-fetch de los datos actualizados en la base de datos, para ello vamos a utilizar la funcion `revalidatePath` que nos permite revalidar los datos de una pagina en especifico dentro del `Server Action`:
+
+```ts
+"use server";
+
+import prismaClient from "@/libs/prisma";
+import { OrderIdSchema, OrderSchema } from "@/schema";
+import { revalidatePath } from "next/cache";
+
+export const createOrder = async (data: unknown) => {
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.order.create({
+      data: {
+        name: result.data.name,
+        total: result.data.total,
+        OrderProduct: {
+          create: result.data.order.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+
+    console.log(response);
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+
+export const completeOrder = async (formData: FormData) => {
+  try {
+    const data = {
+      orderId: formData.get("order_id"),
+    };
+
+    const result = OrderIdSchema.safeParse(data);
+
+    if (!result.success) {
+      return {
+        status: 400,
+        body: result.error.issues,
+      };
+    }
+
+    const response = await prismaClient.order.update({
+      where: {
+        id: result.data.orderId,
+      },
+      data: {
+        status: true,
+        orderReadyAt: new Date(),
+      },
+    });
+
+    console.log(response);
+    revalidatePath("/admin/orders");
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al completar el pedido" }],
+    };
+  }
+};
+```
+
+### Listando los productos en el Panel de Administracion
+
+En `app/admin/products/page.tsx` vamos a listar los productos en el panel de administracion:
+
+```tsx
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {};
+
+const getProducts = async () => {
+  return await prismaClient.product.findMany({
+    include: {
+      category: true,
+    },
+  });
+};
+
+export default async function ProductsPage({}: Props) {
+  const products = await getProducts();
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+      <ProductsTable products={products} />
+    </>
+  );
+}
+```
+
+En el componente `products-table.tsx` vamos a mostrar los productos en una tabla:
+
+```tsx
+import { formatCurrency } from "@/utils";
+import { Product } from "@prisma/client";
+import Link from "next/link";
+
+type Props = {
+  products: Product[];
+};
+
+const ProductsTable = ({ products }: Props) => {
+  return (
+    <div className="px-4 sm:px-6 lg:px-8 mt-20">
+      <div className="mt-8 flow-root ">
+        <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+          <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8 bg-white p-5 ">
+            <table className="min-w-full divide-y divide-gray-300 ">
+              <thead>
+                <tr>
+                  <th
+                    scope="col"
+                    className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-0"
+                  >
+                    Producto
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                  >
+                    Precio
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                  >
+                    Categoría
+                  </th>
+                  <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-0">
+                    <span className="sr-only">Acciones</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {products.map((product) => (
+                  <tr key={product.id}>
+                    <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
+                      {product.name}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                      {formatCurrency(product.price)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                      {product.categoryId}
+                    </td>
+                    <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-0">
+                      <Link
+                        href={`/admin/products/${product.id}/edit`}
+                        className="text-indigo-600 hover:text-indigo-800"
+                      >
+                        Editar <span className="sr-only">, {product.name}</span>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProductsTable;
+```
+
+### Incluir la categoria en la tabla
+
+Debemos modificar los `Types` para poder acceder a la Categoria, ya que el include de Prisma nos devuelve un objeto con la categoria, para ello vamos a modificar el archivo `src/types/index.d.ts`:
+
+```ts
+import { Category, Order, OrderProduct, Product } from "@prisma/client";
+
+export type OrderItem = Pick<Product, "id" | "name" | "price"> & {
+  quantity: number;
+  subtotal: number;
+};
+
+export type OrderWithProducts = Order & {
+  OrderProduct: (OrderProduct & {
+    product: Product;
+  })[];
+};
+
+export type ProductWithCategory = Product & {
+  category: Category;
+};
+```
+
+Tambien podemos exportar desde `app/admin/products/page.tsx` el tipo `ProductWithCategory`, donde utilizamos las nuevas features de TypeScript para que este infiera automaticamente el tipo de datos. Esta opcion es mucho mas dinamica en caso de cambiar la consulta de productos incluyendo una nueva relacion, ya que no tenemos que modificar el tipo manualmente:
+
+```tsx
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {};
+
+const getProducts = async () => {
+  return await prismaClient.product.findMany({
+    include: {
+      category: true,
+    },
+  });
+};
+
+export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
+
+export default async function ProductsPage({}: Props) {
+  const products = await getProducts();
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+      <ProductsTable products={products} />
+    </>
+  );
+}
+```
+
+En el componente `products-table.tsx` vamos a mostrar la categoria en la tabla:
+
+```tsx
+import Link from "next/link";
+import { formatCurrency } from "@/utils";
+// import { ProductWithCategory } from "@/types";
+import { ProductWithCategory } from "@/app/admin/products/page";
+
+type Props = {
+  products: ProductWithCategory;
+};
+
+const ProductsTable = ({ products }: Props) => {
+  return (
+    <div className="px-4 sm:px-6 lg:px-8 mt-20">
+      <div className="mt-8 flow-root ">
+        <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+          <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8 bg-white p-5 ">
+            <table className="min-w-full divide-y divide-gray-300 ">
+              <thead>
+                <tr>
+                  <th
+                    scope="col"
+                    className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-0"
+                  >
+                    Producto
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                  >
+                    Precio
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
+                  >
+                    Categoría
+                  </th>
+                  <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-0">
+                    <span className="sr-only">Acciones</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {products.map((product) => (
+                  <tr key={product.id}>
+                    <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-0">
+                      {product.name}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                      {formatCurrency(product.price)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                      {product.category.name}
+                    </td>
+                    <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-0">
+                      <Link
+                        href={`/admin/products/${product.id}/edit`}
+                        className="text-indigo-600 hover:text-indigo-800"
+                      >
+                        Editar <span className="sr-only">, {product.name}</span>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProductsTable;
+```
+
+### Creando un paginador
+
+Vamos a paginar la Consulta de los productos de 10 en 10, para que de este modo la consulta no consuma tantos recursos en la base de datos, para ello vamos a modificar el archivo `app/admin/products/page.tsx`. Para ello vamos a utilizar los `searchParams` de Next.js para poder paginar los productos, definiendo en la URL el numero de pagina que queremos mostrar:
+
+```tsx
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  searchParams: {
+    page: number;
+    search: string;
+  };
+};
+
+const getProducts = async (page: number, pageSize: number) => {
+  return await prismaClient.product.findMany({
+    take: pageSize,
+    skip: (page - 1) * pageSize || 0,
+    include: {
+      category: true,
+    },
+  });
+};
+
+export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
+
+export default async function ProductsPage({ searchParams: { page } }: Props) {
+  const products = await getProducts(page, 10);
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+      <ProductsTable products={products} />
+    </>
+  );
+}
+```
+
+### Creando Routing para navegar en el Paginador
