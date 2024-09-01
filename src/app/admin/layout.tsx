@@ -18,7 +18,7 @@ export default async function AdminLayout({
         </main>
       </div>
 
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors expand={true} />
     </>
   );
 }

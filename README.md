@@ -13,6 +13,7 @@
 - Zustand
 - React Hook Form
 - Zod
+- Cloudinary
 - Prisma ORM
 - PostgreSQL
 - Docker Compose
@@ -3337,6 +3338,7 @@ export default ProductsTable;
 Vamos a paginar la Consulta de los productos de 10 en 10, para que de este modo la consulta no consuma tantos recursos en la base de datos, para ello vamos a modificar el archivo `app/admin/products/page.tsx`. Para ello vamos a utilizar los `searchParams` de Next.js para poder paginar los productos, definiendo en la URL el numero de pagina que queremos mostrar:
 
 ```tsx
+import ProductsPagination from "@/components/admin/products-pagination";
 import ProductsTable from "@/components/admin/products-table";
 import Heading from "@/components/ui/heading";
 import prismaClient from "@/libs/prisma";
@@ -3349,9 +3351,10 @@ type Props = {
 };
 
 const getProducts = async (page: number, pageSize: number) => {
+  const skip = (page - 1) * pageSize > 0 ? (page - 1) * pageSize : 0;
   return await prismaClient.product.findMany({
     take: pageSize,
-    skip: (page - 1) * pageSize || 0,
+    skip,
     include: {
       category: true,
     },
@@ -3361,14 +3364,1382 @@ const getProducts = async (page: number, pageSize: number) => {
 export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
 
 export default async function ProductsPage({ searchParams: { page } }: Props) {
-  const products = await getProducts(page, 10);
+  const products = await getProducts(Number(page), 10);
   return (
     <>
       <Heading>Administrar productos</Heading>
       <ProductsTable products={products} />
+      <ProductsPagination page={Number(page)} />
     </>
   );
 }
 ```
 
 ### Creando Routing para navegar en el Paginador
+
+Vamos a crear un componente de paginacion en el archivo `app/components/admin/products-pagination.tsx`:
+
+```tsx
+import Link from "next/link";
+
+type Props = {
+  page: number;
+};
+
+const ProductsPagination = ({ page }: Props) => {
+  return (
+    <nav className="flex justify-center py-10">
+      <Link
+        href={`/admin/products?page=${page - 1}`}
+        className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-900"
+      >
+        &laquo;
+      </Link>
+
+      <Link
+        href={`/admin/products?page=${page + 1}`}
+        className="px-3 py-2 text-sm font-medium text-gray-500 hover:text-gray-900"
+      >
+        &raquo;
+      </Link>
+    </nav>
+  );
+};
+
+export default ProductsPagination;
+```
+
+En `app/admin/products/page.tsx` vamos a crear a realizar un segundo llamado a la base de datos para obtener el total de productos y poder calcular el numero de paginas que vamos a mostrar en el paginador:
+
+```tsx
+import ProductsPagination from "@/components/admin/products-pagination";
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  searchParams: {
+    page: number;
+    search: string;
+  };
+};
+
+const countProducts = async () => {
+  return await prismaClient.product.count();
+};
+
+const getProducts = async (page: number, pageSize: number) => {
+  const skip = (page - 1) * pageSize > 0 ? (page - 1) * pageSize : 0;
+  return await prismaClient.product.findMany({
+    take: pageSize,
+    skip,
+    include: {
+      category: true,
+    },
+  });
+};
+
+export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
+
+export default async function ProductsPage({ searchParams: { page } }: Props) {
+  const productsData = getProducts(Number(page), 10);
+  const totalProductsData = countProducts();
+  const [products, totalProducts] = await Promise.all([
+    productsData,
+    totalProductsData,
+  ]);
+
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+      <ProductsTable products={products} />
+      <ProductsPagination page={Number(page)} />
+    </>
+  );
+}
+```
+
+### Calcular total de paginas
+
+En `app/admin/products/page.tsx` vamos a calcular el total de paginas que vamos a mostrar en el paginador:
+
+```tsx
+import ProductsPagination from "@/components/admin/products-pagination";
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  searchParams: {
+    page: number;
+    search: string;
+  };
+};
+
+const countProducts = async () => {
+  return await prismaClient.product.count();
+};
+
+const getProducts = async (page: number, pageSize: number) => {
+  const skip = (page - 1) * pageSize > 0 ? (page - 1) * pageSize : 0;
+  return await prismaClient.product.findMany({
+    take: pageSize,
+    skip,
+    include: {
+      category: true,
+    },
+  });
+};
+
+export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
+
+export default async function ProductsPage({ searchParams: { page } }: Props) {
+  const actualPage = Number(page);
+  const pageSize = 10;
+
+  const productsData = getProducts(actualPage, pageSize);
+  const totalProductsData = countProducts();
+  const [products, totalProducts] = await Promise.all([
+    productsData,
+    totalProductsData,
+  ]);
+  const totalPages = Math.ceil(totalProducts / pageSize);
+
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+      <ProductsTable products={products} />
+      <ProductsPagination actualPage={actualPage} totalPages={totalPages} />
+    </>
+  );
+}
+```
+
+En el paginador `app/components/admin/products-pagination.tsx` vamos a mostrar el numero de paginas que vamos a mostrar en el paginador:
+
+```tsx
+import Link from "next/link";
+
+type Props = {
+  actualPage: number;
+  totalPages: number;
+};
+
+const ProductsPagination = ({ actualPage, totalPages }: Props) => {
+  return (
+    <nav className="flex justify-center py-10">
+      {actualPage < totalPages && (
+        <Link
+          href={`/admin/products?page=${actualPage + 1}`}
+          className="bg-white px-4 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-300 focus:z-20 focus:outline-offset-0"
+        >
+          &raquo;
+        </Link>
+      )}
+    </nav>
+  );
+};
+
+export default ProductsPagination;
+```
+
+### Agregar el boton de pagina anterior
+
+En `app/components/admin/products-pagination.tsx` vamos a agregar el boton de pagina anterior:
+
+```tsx
+import Link from "next/link";
+
+type Props = {
+  actualPage: number;
+  totalPages: number;
+};
+
+const ProductsPagination = ({ actualPage, totalPages }: Props) => {
+  return (
+    <nav className="flex justify-center py-10">
+      {actualPage > 1 && (
+        <Link
+          href={`/admin/products?page=${actualPage - 1}`}
+          className="bg-white px-4 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-300 focus:z-20 focus:outline-offset-0"
+        >
+          &laquo;
+        </Link>
+      )}
+
+      {actualPage < totalPages && (
+        <Link
+          href={`/admin/products?page=${actualPage + 1}`}
+          className="bg-white px-4 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-300 focus:z-20 focus:outline-offset-0"
+        >
+          &raquo;
+        </Link>
+      )}
+    </nav>
+  );
+};
+
+export default ProductsPagination;
+```
+
+Ademas vamos a redireccionar al usuario a `?page=1` si el numero de pagina es mayor al total de paginas en `app/admin/products/page.tsx`:
+
+```tsx
+import { redirect } from "next/navigation";
+import ProductsPagination from "@/components/admin/products-pagination";
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  searchParams: {
+    page: number;
+    search: string;
+  };
+};
+
+const countProducts = async () => {
+  return await prismaClient.product.count();
+};
+
+const getProducts = async (page: number, pageSize: number) => {
+  return await prismaClient.product.findMany({
+    take: pageSize,
+    skip: (page - 1) * pageSize,
+    include: {
+      category: true,
+    },
+  });
+};
+
+export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
+
+export default async function ProductsPage({ searchParams: { page } }: Props) {
+  const actualPage = Number(page);
+  const pageSize = 10;
+
+  if (isNaN(actualPage) || actualPage < 1) redirect("/admin/products?page=1");
+
+  const productsData = getProducts(actualPage, pageSize);
+  const totalProductsData = countProducts();
+  const [products, totalProducts] = await Promise.all([
+    productsData,
+    totalProductsData,
+  ]);
+  const totalPages = Math.ceil(totalProducts / pageSize);
+
+  if (actualPage > totalPages) redirect("/admin/products?page=1");
+
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+      <ProductsTable products={products} />
+      <ProductsPagination actualPage={actualPage} totalPages={totalPages} />
+    </>
+  );
+}
+```
+
+### Agregar paginador por numeros
+
+En `app/components/admin/products-pagination.tsx` vamos a agregar el paginador por numeros:
+
+```tsx
+import Link from "next/link";
+
+type Props = {
+  actualPage: number;
+  totalPages: number;
+};
+
+const ProductsPagination = ({ actualPage, totalPages }: Props) => {
+  return (
+    <nav className="flex justify-center py-10">
+      {actualPage > 1 && (
+        <Link
+          href={`/admin/products?page=${actualPage - 1}`}
+          className="bg-white px-4 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-300 focus:z-20 focus:outline-offset-0"
+        >
+          &laquo;
+        </Link>
+      )}
+
+      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+        <Link
+          key={page}
+          href={`/admin/products?page=${page}`}
+          className={`px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-900 bg-white ring-1 ring-inset ring-gray-300 focus:z-20 focus:outline-offset-0 ${
+            page === actualPage && "text-gray-900 font-black"
+          }`}
+        >
+          {page}
+        </Link>
+      ))}
+
+      {actualPage < totalPages && (
+        <Link
+          href={`/admin/products?page=${actualPage + 1}`}
+          className="bg-white px-4 py-2 text-sm text-gray-900 ring-1 ring-inset ring-gray-300 focus:z-20 focus:outline-offset-0"
+        >
+          &raquo;
+        </Link>
+      )}
+    </nav>
+  );
+};
+
+export default ProductsPagination;
+```
+
+### Creando un formulario de busqueda de productos
+
+En `app/admin/products/page.tsx` vamos a crear un formulario de busqueda de productos:
+
+```tsx
+import { redirect } from "next/navigation";
+import ProductsPagination from "@/components/admin/products-pagination";
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+import Link from "next/link";
+import ProductsSearch from "@/components/admin/products-search";
+
+type Props = {
+  searchParams: {
+    page: number;
+    search: string;
+  };
+};
+
+const countProducts = async () => {
+  return await prismaClient.product.count();
+};
+
+const getProducts = async (page: number, pageSize: number) => {
+  return await prismaClient.product.findMany({
+    take: pageSize,
+    skip: (page - 1) * pageSize,
+    include: {
+      category: true,
+    },
+  });
+};
+
+export type ProductWithCategory = Awaited<ReturnType<typeof getProducts>>;
+
+export default async function ProductsPage({ searchParams: { page } }: Props) {
+  const actualPage = Number(page);
+  const pageSize = 10;
+
+  if (isNaN(actualPage) || actualPage < 1) redirect("/admin/products?page=1");
+
+  const productsData = getProducts(actualPage, pageSize);
+  const totalProductsData = countProducts();
+  const [products, totalProducts] = await Promise.all([
+    productsData,
+    totalProductsData,
+  ]);
+  const totalPages = Math.ceil(totalProducts / pageSize);
+
+  if (actualPage > totalPages) redirect("/admin/products?page=1");
+
+  return (
+    <>
+      <Heading>Administrar productos</Heading>
+
+      <div className="flex flex-col lg:flex-row lg:justify-between gap-5">
+        <Link
+          href="/admin/products/new"
+          className="bg-amber-400 w-full lg:w-auto text-xl px-10 py-3 text-center font-bold"
+        >
+          Crear producto
+        </Link>
+
+        <ProductsSearch />
+      </div>
+
+      <ProductsTable products={products} />
+      <ProductsPagination actualPage={actualPage} totalPages={totalPages} />
+    </>
+  );
+}
+```
+
+En `app/components/admin/products-search.tsx` vamos a crear el componente de busqueda de productos:
+
+```tsx
+type Props = {};
+
+const ProductsSearch = (props: Props) => {
+  return (
+    <form action="" className="flex items-center">
+      <input
+        type="search"
+        name="search"
+        id="search"
+        placeholder="Buscar producto"
+        className="p-2 placeholder-gray-400 w-full"
+      />
+      <input
+        type="submit"
+        value="Buscar"
+        className="bg-indigo-600 p-2 uppercase text-white cursor-pointer"
+      />
+    </form>
+  );
+};
+
+export default ProductsSearch;
+```
+
+### Validando el buscado con Schemas de Zod
+
+Vamos a definir el nuevo `Schema` para validar el campo de busqueda en el archivo `src/schema/index.ts`:
+
+```ts
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  name: z.string().min(1, "El nombre es requerido"),
+  total: z.number().min(1, "El total es requerido"),
+  order: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+      price: z.number(),
+      quantity: z.number(),
+      subtotal: z.number(),
+    })
+  ),
+});
+
+export const OrderIdSchema = z.object({
+  orderId: z
+    .string()
+    .transform((value) => parseInt(value))
+    .refine((value) => !isNaN(value) || value < 0, {
+      message: "El id de la orden es inválido",
+    }),
+});
+
+export const SearchSchema = z.object({
+  search: z.string().trim().min(1, { message: "La búsqueda es requerida" }),
+});
+```
+
+Vamos a utilizar el `Schema` de busqueda en el componente `products-search.tsx` para, en caso de error mostrar una `notificacion Toast` al usuario utilizando `Sonner`:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { SearchSchema } from "@/schema";
+import { toast } from "sonner";
+
+type Props = {};
+
+const ProductsSearch = (props: Props) => {
+  const router = useRouter();
+
+  const handleSeachForm = (formData: FormData) => {
+    const data = {
+      search: formData.get("search"),
+    };
+
+    const result = SearchSchema.safeParse(data);
+
+    if (!result.success) {
+      // return toast.error(result.error.issues[0].message);
+      return result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+    }
+
+    // router.push(`/admin/products?page=1&search=${result.data.search}`);
+    router.push(`/admin/products/search?search=${result.data.search}`);
+  };
+
+  return (
+    <form action={handleSeachForm} className="flex items-center">
+      <input
+        type="search"
+        name="search"
+        id="search"
+        placeholder="Buscar producto"
+        className="p-2 placeholder-gray-400 w-full"
+      />
+      <input
+        type="submit"
+        value="Buscar"
+        className="bg-indigo-600 p-2 uppercase text-white cursor-pointer"
+      />
+    </form>
+  );
+};
+
+export default ProductsSearch;
+```
+
+### Recuperar el valor de la busqueda
+
+En `app/admin/products/search/page.tsx` vamos a recuperar el valor de la busqueda en la URL y mostrarlo en el formulario de busqueda:
+
+```tsx
+import Heading from "@/components/ui/heading";
+
+type Props = {
+  searchParams: {
+    search: string;
+  };
+};
+
+export default function SearchProductsPage({
+  searchParams: { search },
+}: Props) {
+  return (
+    <>
+      <Heading>Resultados de busqueda</Heading>
+    </>
+  );
+}
+```
+
+### Mostrando los resultados de la busqueda
+
+Vamos a mostrar los resultados de la busqueda en `app/admin/products/search/page.tsx` utilizando el componente de `src/components/admin/products-table.tsx`, la cual ya poseo los `Types` desde el archivo `src/app/admin/products/page.tsx` o `src/types/index.d.ts`:
+
+```tsx
+import ProductsSearch from "@/components/admin/products-search";
+import ProductsTable from "@/components/admin/products-table";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  searchParams: {
+    search: string;
+  };
+};
+
+const searchProducts = async (searchTerm: string) => {
+  return await prismaClient.product.findMany({
+    where: {
+      name: {
+        contains: searchTerm,
+        mode: "insensitive",
+      },
+    },
+    include: {
+      category: true,
+    },
+  });
+};
+
+export default async function SearchProductsPage({
+  searchParams: { search },
+}: Props) {
+  const products = await searchProducts(search);
+  console.log(products);
+  return (
+    <>
+      <Heading>Resultados de busqueda: {search}</Heading>
+
+      <div className="flex flex-col lg:flex-row lg:justify-between gap-5">
+        <ProductsSearch />
+      </div>
+
+      {products.length > 0 ? (
+        <ProductsTable products={products} />
+      ) : (
+        <p className="text-center text-lg">No se encontraron productos</p>
+      )}
+    </>
+  );
+}
+```
+
+### Routing y Formulario para crear Productos
+
+Vamos a estar trabajando sobre la pagina `app/admin/products/new/page.tsx` para crear un formulario de creacion de productos:
+
+```tsx
+import AddProductForm from "@/components/admin/add-product-form";
+import Heading from "@/components/ui/heading";
+
+type Props = {};
+
+export default function NewProductPage({}: Props) {
+  return (
+    <>
+      <Heading>Nuevo Producto</Heading>
+
+      <AddProductForm />
+    </>
+  );
+}
+```
+
+Vamos a crear un componente de formulario de creacion de productos en `app/components/admin/add-product-form.tsx`:
+
+```tsx
+import ProductForm from "./product-form";
+
+type Props = {};
+
+const AddProductForm = (props: Props) => {
+  return (
+    <div className="bg-white mt-10 px-5 py-10 rounded-md shadow-md max-w-3xl mx-auto">
+      <form action="" className="space-y-5">
+        <ProductForm />
+        <input
+          type="submit"
+          value="Crear producto"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        />
+      </form>
+    </div>
+  );
+};
+
+export default AddProductForm;
+```
+
+Ademas vamos a crear un componente de formulario de productos en `app/components/admin/product-form.tsx`, el cual va a servir tanto para crear el producto como para editarlo:
+
+```tsx
+type Props = {};
+
+const ProductForm = (props: Props) => {
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="name">
+          Nombre:
+        </label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Nombre Producto"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="price">
+          Precio:
+        </label>
+        <input
+          id="price"
+          name="price"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Precio Producto"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="categoryId">
+          Categoría:
+        </label>
+        <select
+          className="block w-full p-3 bg-slate-100"
+          id="categoryId"
+          name="categoryId"
+        >
+          <option value="">-- Seleccione --</option>
+        </select>
+      </div>
+    </>
+  );
+};
+
+export default ProductForm;
+```
+
+### Mostrando las Categorias en el Formulario
+
+En `app/components/admin/product-form.tsx` vamos a mostrar las categorias en el formulario de creacion de productos:
+
+```tsx
+import prismaClient from "@/libs/prisma";
+
+type Props = {};
+
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const ProductForm = async (props: Props) => {
+  const categories = await getCategories();
+
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="name">
+          Nombre:
+        </label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Nombre Producto"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="price">
+          Precio:
+        </label>
+        <input
+          id="price"
+          name="price"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Precio Producto"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="categoryId">
+          Categoría:
+        </label>
+        <select
+          className="block w-full p-3 bg-slate-100"
+          id="categoryId"
+          name="categoryId"
+        >
+          <option value="" disabled>
+            -- Seleccione --
+          </option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    </>
+  );
+};
+
+export default ProductForm;
+```
+
+### Mezclando Componentes Cliente y Servidor [Problema]
+
+El problema actual reside en que estamos utilizando un componente de tipo `Servidor` en el componente `product-form.tsx`, donde llama al servicio de Prisma ORM para obtener las categorias desde la base de datos y cargarlas en los inputs del formulario, pero el problema viene cuando este componente de `product-form.tsx` es utilizado en un componente de tipo `Cliente` como `add-product-form.tsx`, ya que este componente no puede llamar a servicios de base de datos directamente, por lo que debemos buscar una solucion para poder utilizar este componente en ambos contextos. Esta solucion es la `Composisicion de Componentes`, donde vamos a utilizar un componente de tipo `Servidor` para obtener las categorias y luego pasarselas como `props` al componente de tipo `Cliente`
+
+### Composicion para utilizar Server Components dentro de Client Components
+
+Actualmente tenemos tres componentes para la creacion de productos:
+
+1. `app/admin/products/new/page.tsx` - Pagina de creacion de productos
+2. `app/components/admin/add-product-form.tsx` - Formulario de creacion de productos
+3. `app/components/admin/product-form.tsx` - Formulario de productos
+
+Para poder utilizar un `Server Component` dentro de un `Client Component` vamos a utilizar la `Composicion de Componentes`, de modo que dentro del `Client Component` vamos a definir un elemento `children` de React.js para de este modo pasarle el `Server Component` como `props` al `Client Component`, esto funciona debido a que Next.js reserva un espacio para el `Server Component` y luego lo renderiza en el `Client Component`, al traer primero el `Server Component` y luego el `Client Component`, ya que en Next.js primero se ejecuta el `Server Component` y luego el `Client Component`.
+
+En `app/components/admin/add-product-form.tsx` vamos a utilizar la composicion de componentes para poder utilizar el componente `product-form.tsx`:
+
+```tsx
+"use client";
+
+type Props = {
+  children: React.ReactNode;
+};
+
+const AddProductForm = ({ children }: Props) => {
+  const handleCreateProduct = async (formData: FormData) => {
+    console.log("Desde Cliente");
+  };
+
+  return (
+    <div className="bg-white mt-10 px-5 py-10 rounded-md shadow-md max-w-3xl mx-auto">
+      <form action={handleCreateProduct} className="space-y-5">
+        {children}
+        <input
+          type="submit"
+          value="Crear producto"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        />
+      </form>
+    </div>
+  );
+};
+
+export default AddProductForm;
+```
+
+En `app/admin/products/new/page.tsx` vamos a utilizar el componente `add-product-form.tsx`:
+
+```tsx
+import AddProductForm from "@/components/admin/add-product-form";
+import ProductForm from "@/components/admin/product-form";
+import Heading from "@/components/ui/heading";
+
+type Props = {};
+
+export default function NewProductPage({}: Props) {
+  return (
+    <>
+      <Heading>Nuevo Producto</Heading>
+
+      <AddProductForm>
+        <ProductForm />
+      </AddProductForm>
+    </>
+  );
+}
+```
+
+### Validando la creacion de Productos
+
+Vamos a estar validando el formulario de creacion de productos en `app/components/admin/add-product-form.tsx` utilizando `Zod`, ya que es donde se encuentra el `action`:
+
+```tsx
+"use client";
+
+import { toast } from "sonner";
+import { ProductSchema } from "@/schema";
+
+type Props = {
+  children: React.ReactNode;
+};
+
+const AddProductForm = ({ children }: Props) => {
+  const handleCreateProduct = async (formData: FormData) => {
+    const data = {
+      name: formData.get("name") as string,
+      price: Number(formData.get("price")),
+      categoryId: Number(formData.get("categoryId")),
+    };
+
+    const result = ProductSchema.safeParse(data);
+
+    if (!result.success) {
+      return result.error.errors.map((error) => toast.error(error.message));
+    }
+
+    console.log(data);
+  };
+
+  return (
+    <div className="bg-white mt-10 px-5 py-10 rounded-md shadow-md max-w-3xl mx-auto">
+      <form action={handleCreateProduct} className="space-y-5">
+        {children}
+        <input
+          type="submit"
+          value="Crear producto"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        />
+      </form>
+    </div>
+  );
+};
+
+export default AddProductForm;
+```
+
+Definimos el nuevo de Zod en `Schema` en `src/schema/index.ts`:
+
+```ts
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  name: z.string().min(1, "El nombre es requerido"),
+  total: z.number().min(1, "El total es requerido"),
+  order: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+      price: z.number(),
+      quantity: z.number(),
+      subtotal: z.number(),
+    })
+  ),
+});
+
+export const OrderIdSchema = z.object({
+  orderId: z
+    .string()
+    .transform((value) => parseInt(value))
+    .refine((value) => !isNaN(value) || value < 0, {
+      message: "El id de la orden es inválido",
+    }),
+});
+
+export const SearchSchema = z.object({
+  search: z.string().trim().min(1, { message: "La búsqueda es requerida" }),
+});
+
+export const ProductSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, { message: "El Nombre del Producto no puede ir vacio" }),
+  price: z
+    .string()
+    .trim()
+    .transform((value) => parseFloat(value))
+    .refine((value) => value > 0, { message: "Precio no válido" })
+    .or(z.number().min(1, { message: "La Categoría es Obligatoria" })),
+  categoryId: z
+    .string()
+    .trim()
+    .transform((value) => parseInt(value))
+    .refine((value) => value > 0, { message: "La Categoría es Obligatoria" })
+    .or(z.number().min(1, { message: "La Categoría es Obligatoria" })),
+});
+```
+
+### Cloudinary para subir imagenes
+
+Vamos a utilizar `Cloudinary` para subir imagenes en nuestra aplicacion, para ello vamos a instalar el paquete de `cloudinary`:
+
+```bash
+npm i next-cloudinary react-icons
+```
+
+Vanos a crear un archivo `.env.local` para guardar las variables de entorno de `Cloudinary`:
+
+```
+NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=your_cloud_name
+NEXT_PUBLIC_CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+```
+
+Creamos un nuevo componente en `app/components/admin/image-upload.tsx` para subir imagenes:
+
+```tsx
+"use client";
+
+type Props = {};
+
+const ImageUpload = (props: Props) => {
+  return <div>ImageUpload</div>;
+};
+
+export default ImageUpload;
+```
+
+Lo importamos en `app/components/admin/product-form.tsx`:
+
+```tsx
+import prismaClient from "@/libs/prisma";
+import ImageUpload from "./image-upload";
+
+type Props = {};
+
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const ProductForm = async (props: Props) => {
+  const categories = await getCategories();
+
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="name">
+          Nombre:
+        </label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Nombre Producto"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="price">
+          Precio:
+        </label>
+        <input
+          id="price"
+          name="price"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Precio Producto"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="categoryId">
+          Categoría:
+        </label>
+        <select
+          className="block w-full p-3 bg-slate-100"
+          id="categoryId"
+          name="categoryId"
+          defaultValue={""}
+        >
+          <option value="" disabled>
+            -- Seleccione --
+          </option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <ImageUpload />
+    </>
+  );
+};
+
+export default ProductForm;
+```
+
+### Creando el componente para subir imagenes
+
+Para poder subir las imagenes a Cloudinary desde el componente `<CldUploadWidget />` de `next-cloudinary`, primero tenemos que crear un nuevo `Upload Presets` desde la configuracion de Cloudinary:
+
+En `app/components/admin/image-upload.tsx`:
+
+```tsx
+"use client";
+
+import { CldUploadWidget } from "next-cloudinary";
+import { TbPhotoPlus } from "react-icons/tb";
+
+type Props = {};
+
+const ImageUpload = (props: Props) => {
+  return (
+    <CldUploadWidget
+      uploadPreset="quisoco-nextjs"
+      options={{ folder: "quisoco-nextjs", maxFiles: 1 }}
+      onSuccess={(res, { widget }) => {
+        console.log(res);
+      }}
+      onError={(err) => console.error(err)}
+    >
+      {({ open }) => (
+        <>
+          <div className="space-y-2">
+            <label htmlFor="" className="text-slate-800">
+              Imagen Producto
+            </label>
+            <div
+              className="relative cursor-pointer hover:opacity-70 transition p-10 border-neutral-300 flex flex-col justify-center items-center gap-4 text-neutral-600 bg-slate-100"
+              onClick={() => open()}
+            >
+              <TbPhotoPlus size={50} />
+              <p className="text-lg font-semibold">Agregar imagen</p>
+            </div>
+          </div>
+        </>
+      )}
+    </CldUploadWidget>
+  );
+};
+
+export default ImageUpload;
+```
+
+### Obtener la URL de la Imagen que se sube
+
+Primero para poder renderizar la imagen subida a Cloudinary en el Componente `<Image />` de Next.js, debemos agregar el dominio de Cloudinary al `next.config.mjs`:
+
+```mjs
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
+      },
+    ],
+  },
+};
+
+export default nextConfig;
+```
+
+Vamos a obtener la URL de la imagen que se sube a Cloudinary en `app/components/admin/image-upload.tsx`:
+
+```tsx
+"use client";
+
+import { useState } from "react";
+import Image from "next/image";
+import { CldUploadWidget } from "next-cloudinary";
+import { TbPhotoPlus } from "react-icons/tb";
+
+type Props = {};
+
+const ImageUpload = (props: Props) => {
+  const [imageURL, setImagenURL] = useState<string>("");
+  return (
+    <CldUploadWidget
+      uploadPreset="quisoco-nextjs"
+      options={{ folder: "quisoco-nextjs", maxFiles: 1 }}
+      onSuccess={(res, { widget }) => {
+        console.log(res);
+        if (res.event === "success") {
+          // @ts-ignore
+          setImagenURL(res.info.secure_url);
+          widget.close();
+        }
+      }}
+      onError={(err) => console.error(err)}
+    >
+      {({ open }) => (
+        <>
+          <div className="space-y-2">
+            <label htmlFor="" className="text-slate-800">
+              Imagen Producto
+            </label>
+            <div
+              className="relative cursor-pointer hover:opacity-70 transition p-10 border-neutral-300 flex flex-col justify-center items-center gap-4 text-neutral-600 bg-slate-100"
+              onClick={() => open()}
+            >
+              <TbPhotoPlus size={50} />
+              <p className="text-lg font-semibold">Agregar imagen</p>
+
+              {imageURL && (
+                <div className="absolute inset-0 w-full h-full">
+                  <Image
+                    src={imageURL}
+                    alt="Imagen Producto"
+                    fill
+                    style={{ objectFit: "contain" }}
+                    sizes="100%"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          <input type="hidden" name="image" value={imageURL} />
+        </>
+      )}
+    </CldUploadWidget>
+  );
+};
+
+export default ImageUpload;
+```
+
+### Almacenando el Producto en la Base de Datos
+
+Lo primero va a ser modificar el `Schema de Zod` para agregar el campo de `image` en `src/schema/index.ts`:
+
+```ts
+import { z } from "zod";
+
+export const OrderSchema = z.object({
+  name: z.string().min(1, "El nombre es requerido"),
+  total: z.number().min(1, "El total es requerido"),
+  order: z.array(
+    z.object({
+      id: z.number(),
+      name: z.string(),
+      price: z.number(),
+      quantity: z.number(),
+      subtotal: z.number(),
+    })
+  ),
+});
+
+export const OrderIdSchema = z.object({
+  orderId: z
+    .string()
+    .transform((value) => parseInt(value))
+    .refine((value) => !isNaN(value) || value < 0, {
+      message: "El id de la orden es inválido",
+    }),
+});
+
+export const SearchSchema = z.object({
+  search: z.string().trim().min(1, { message: "La búsqueda es requerida" }),
+});
+
+export const ProductSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, { message: "El Nombre del Producto no puede ir vacio" }),
+  price: z
+    .string()
+    .trim()
+    .transform((value) => parseFloat(value))
+    .refine((value) => value > 0, { message: "Precio no válido" })
+    .or(z.number().min(1, { message: "Precio no válido" })),
+  categoryId: z
+    .string()
+    .trim()
+    .transform((value) => parseInt(value))
+    .refine((value) => value > 0, { message: "La Categoría es Obligatoria" })
+    .or(z.number().min(1, { message: "La Categoría es Obligatoria" })),
+  image: z.string().min(1, { message: "La Imagen es Obligatoria" }),
+});
+```
+
+Creamos un nuevo `action` en `src/actions/actions.ts` para crear un nuevo producto en la base de datos:
+
+```ts
+export const createProduct = async (data: unknown) => {
+  const result = ProductSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.product.create({
+      data: result.data,
+    });
+
+    console.log(response);
+    return {
+      status: 201,
+      body: response,
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el producto" }],
+    };
+  }
+};
+```
+
+Ademas agregamos la validacion y el action para crear el producto en el Componente `add-product-form.tsx`:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { ProductSchema } from "@/schema";
+import { createProduct } from "@/actions/actions";
+
+type Props = {
+  children: React.ReactNode;
+};
+
+const AddProductForm = ({ children }: Props) => {
+  const router = useRouter();
+
+  const handleCreateProduct = async (formData: FormData) => {
+    // Obtener datos del formulario
+    const data = {
+      name: formData.get("name") as string,
+      price: Number(formData.get("price")),
+      categoryId: Number(formData.get("categoryId")),
+      image: formData.get("image") as string,
+    };
+
+    // Validación con Zod
+    const result = ProductSchema.safeParse(data);
+
+    if (!result.success) {
+      // Mostrar errores de validación
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    // Crear producto
+    const response = await createProduct(result.data);
+
+    if (response.status !== 201) {
+      // Verificar que response.body sea un array antes de usar forEach
+      if (Array.isArray(response.body)) {
+        response.body.forEach((error) => {
+          toast.error(error.message);
+        });
+      } else {
+        // En caso de que no sea un array, manejar el error según la estructura de tus datos
+        toast.error("Ocurrió un error inesperado");
+      }
+      return;
+    }
+
+    // Mostrar éxito
+    console.log(response);
+    toast.success("Producto creado exitosamente");
+    router.push("/admin/products");
+  };
+
+  return (
+    <div className="bg-white mt-10 px-5 py-10 rounded-md shadow-md max-w-3xl mx-auto">
+      <form action={handleCreateProduct} className="space-y-5">
+        {children}
+        <input
+          type="submit"
+          value="Crear producto"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        />
+      </form>
+    </div>
+  );
+};
+
+export default AddProductForm;
+```
+
+### Como mostrar las imagenes si vienen de Cloudinary
+
+Vamos a crear en `src/utils/index.ts` una nueva funcion encargada de verificar si la imagen viene de Cloudinary o no:
+
+```ts
+export const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+};
+
+export const getImagePath = (imagePath: string) => {
+  const cludinaryBaseUrl = "https://res.cloudinary.com";
+  if (imagePath.startsWith(cludinaryBaseUrl)) {
+    return imagePath;
+  }
+  return `/products/${imagePath}.jpg`;
+};
+```
+
+Luego la utilizamos en `app/components/products/product-card.tsx`:
+
+```tsx
+import Image from "next/image";
+import AddProductButton from "./add-product-button";
+import { Product } from "@prisma/client";
+import { formatCurrency, getImagePath } from "@/utils";
+
+type Props = {
+  product: Product;
+};
+
+const ProductCard = ({ product }: Props) => {
+  return (
+    <div className="border bg-white">
+      <Image
+        src={getImagePath(product.image)}
+        alt={product.name}
+        width={300}
+        height={300}
+        quality={80}
+        className="w-full h-full object-cover"
+      />
+      <div className="p-5">
+        <h3 className="text-2xl font-bold">{product.name}</h3>
+        <p className="mt-5 font-black text-4xl text-amber-500">
+          {formatCurrency(product.price)}
+        </p>
+        <AddProductButton product={product} />
+      </div>
+    </div>
+  );
+};
+
+export default ProductCard;
+```

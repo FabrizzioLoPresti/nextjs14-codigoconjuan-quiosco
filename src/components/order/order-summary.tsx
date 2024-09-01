@@ -85,7 +85,7 @@ const OrderSummary = (props: Props) => {
           </form>
         </div>
       )}
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors expand={true} />
     </aside>
   );
 };
