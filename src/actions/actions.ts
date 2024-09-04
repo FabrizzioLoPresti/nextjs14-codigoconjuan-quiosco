@@ -99,3 +99,34 @@ export const createProduct = async (data: unknown) => {
     };
   }
 };
+
+export const updateProduct = async (id: number, data: unknown) => {
+  const result = ProductSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.product.update({
+      where: {
+        id,
+      },
+      data: result.data,
+    });
+
+    revalidatePath("/admin/products");
+    return {
+      status: 201,
+      body: response,
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al actualizar el producto" }],
+    };
+  }
+};

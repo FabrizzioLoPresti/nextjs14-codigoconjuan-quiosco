@@ -4743,3 +4743,697 @@ const ProductCard = ({ product }: Props) => {
 
 export default ProductCard;
 ```
+
+### Obtener el producto a editar
+
+Vamos a crear el `Routing Dinamico` para cada uno de los productos en `app/admin/products/[id]/edit/page.tsx`:
+
+```tsx
+import { notFound } from "next/navigation";
+import prismaClient from "@/libs/prisma";
+
+type Props = {
+  params: { id: string };
+};
+
+const getProductById = async (id: number) => {
+  const product = await prismaClient.product.findUnique({
+    where: {
+      id,
+    },
+  });
+
+  if (!product) {
+    notFound();
+  }
+
+  return product;
+};
+
+export default async function ProductEditPage({ params: { id } }: Props) {
+  const product = await getProductById(Number(id));
+  console.log(product);
+  return <div>ProductEditPage</div>;
+}
+```
+
+En caso de no encontrar el producto listado, redireccionamos al usuario a la pagina `404` con la funcion de `notfound` de Next.js:
+
+```tsx
+import Link from "next/link";
+import Heading from "@/components/ui/heading";
+
+type Props = {};
+
+export default function NotFoundPage({}: Props) {
+  return (
+    <section className="text-center">
+      <Heading>Producto no encontrado</Heading>
+      <Link
+        href="/admin/products"
+        className="bg-amber-400 text-black px-10 py-3 text-xl text-center font-bold cursor-pointer w-full lg:w-auto"
+      >
+        Volver a la lista de productos
+      </Link>
+    </section>
+  );
+}
+```
+
+### Ajustar el Formulario de Edicion y llenar los campos automaticamente
+
+Vamos a crear un nuevo componente en `app/components/admin/edit-product-form.tsx` para el formulario de edicion de productos:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { ProductSchema } from "@/schema";
+import { createProduct } from "@/actions/actions";
+
+type Props = {
+  children: React.ReactNode;
+};
+
+const EditProductForm = ({ children }: Props) => {
+  const router = useRouter();
+
+  const handleCreateProduct = async (formData: FormData) => {
+    // Obtener datos del formulario
+    const data = {
+      name: formData.get("name") as string,
+      price: Number(formData.get("price")),
+      categoryId: Number(formData.get("categoryId")),
+      image: formData.get("image") as string,
+    };
+
+    // Validación con Zod
+    const result = ProductSchema.safeParse(data);
+
+    if (!result.success) {
+      // Mostrar errores de validación
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    // Crear producto
+    const response = await createProduct(result.data);
+
+    if (response.status !== 201) {
+      // Verificar que response.body sea un array antes de usar forEach
+      if (Array.isArray(response.body)) {
+        response.body.forEach((error) => {
+          toast.error(error.message);
+        });
+      } else {
+        // En caso de que no sea un array, manejar el error según la estructura de tus datos
+        toast.error("Ocurrió un error inesperado");
+      }
+      return;
+    }
+
+    // Mostrar éxito
+    console.log(response);
+    toast.success("Producto creado exitosamente");
+    router.push("/admin/products");
+  };
+
+  return (
+    <div className="bg-white mt-10 px-5 py-10 rounded-md shadow-md max-w-3xl mx-auto">
+      <form action={handleCreateProduct} className="space-y-5">
+        {children}
+        <input
+          type="submit"
+          value="Guardar cambios"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        />
+      </form>
+    </div>
+  );
+};
+
+export default EditProductForm;
+```
+
+Dentro del componente de Formulario `product-form.tsx` vamos a modificar el componente para que pueda ser utilizado tanto en la creacion como en la edicion de productos:
+
+```tsx
+import prismaClient from "@/libs/prisma";
+import ImageUpload from "./image-upload";
+import { Product } from "@prisma/client";
+
+type Props = {
+  product?: Product;
+};
+
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const ProductForm = async (props: Props) => {
+  const categories = await getCategories();
+
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="name">
+          Nombre:
+        </label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Nombre Producto"
+          defaultValue={props.product?.name}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="price">
+          Precio:
+        </label>
+        <input
+          id="price"
+          name="price"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Precio Producto"
+          defaultValue={props.product?.price}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="categoryId">
+          Categoría:
+        </label>
+        <select
+          className="block w-full p-3 bg-slate-100"
+          id="categoryId"
+          name="categoryId"
+          defaultValue={props.product?.categoryId || ""}
+        >
+          <option value="" disabled>
+            -- Seleccione --
+          </option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <ImageUpload />
+    </>
+  );
+};
+
+export default ProductForm;
+```
+
+Por ultimo vamos a incluir ambos componentes en la pagina de edicion de productos `app/admin/products/[id]/edit/page.tsx`:
+
+```tsx
+import { notFound } from "next/navigation";
+import prismaClient from "@/libs/prisma";
+import Heading from "@/components/ui/heading";
+import EditProductForm from "@/components/admin/edit-product-form";
+import ProductForm from "@/components/admin/product-form";
+
+type Props = {
+  params: { id: string };
+};
+
+const getProductById = async (id: number) => {
+  const product = await prismaClient.product.findUnique({
+    where: {
+      id,
+    },
+  });
+
+  if (!product) {
+    notFound();
+  }
+
+  return product;
+};
+
+export default async function ProductEditPage({ params: { id } }: Props) {
+  const product = await getProductById(Number(id));
+  return (
+    <>
+      <Heading>Editar producto: {product.name}</Heading>
+
+      <EditProductForm>
+        <ProductForm product={product} />
+      </EditProductForm>
+    </>
+  );
+}
+```
+
+### Validando las imagenes
+
+Vamos a comenzar creando un nuevo componente `src/components/ui/go-back-button.tsx` para el boton de regresar:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+
+type Props = {};
+
+const GoBackButton = (props: Props) => {
+  const router = useRouter();
+  return (
+    <button
+      onClick={() => router.back()}
+      className="bg-amber-400 w-full lg:w-auto text-xl px-10 py-3 text-center font-bold"
+    >
+      Volver
+    </button>
+  );
+};
+
+export default GoBackButton;
+```
+
+Luego vamos a integrar el componente `go-back-button.tsx` en la pagina de edicion de productos `app/admin/products/[id]/edit/page.tsx`:
+
+```tsx
+import { notFound } from "next/navigation";
+import prismaClient from "@/libs/prisma";
+import Heading from "@/components/ui/heading";
+import EditProductForm from "@/components/admin/edit-product-form";
+import ProductForm from "@/components/admin/product-form";
+import GoBackButton from "@/components/ui/go-back-button";
+
+type Props = {
+  params: { id: string };
+};
+
+const getProductById = async (id: number) => {
+  const product = await prismaClient.product.findUnique({
+    where: {
+      id,
+    },
+  });
+
+  if (!product) {
+    notFound();
+  }
+
+  return product;
+};
+
+export default async function ProductEditPage({ params: { id } }: Props) {
+  const product = await getProductById(Number(id));
+  return (
+    <>
+      <Heading>Editar producto: {product.name}</Heading>
+      <GoBackButton />
+      <EditProductForm>
+        <ProductForm product={product} />
+      </EditProductForm>
+    </>
+  );
+}
+```
+
+Dentro del componente de `src/components/admin/product-form.tsx` vamos a agregar la validacion de la imagen pasandole la imagen como `props` al componente `image-upload.tsx`:
+
+```tsx
+import prismaClient from "@/libs/prisma";
+import ImageUpload from "./image-upload";
+import { Product } from "@prisma/client";
+
+type Props = {
+  product?: Product;
+};
+
+const getCategories = async () => {
+  return await prismaClient.category.findMany();
+};
+
+const ProductForm = async ({ product }: Props) => {
+  const categories = await getCategories();
+
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="name">
+          Nombre:
+        </label>
+        <input
+          id="name"
+          type="text"
+          name="name"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Nombre Producto"
+          defaultValue={product?.name}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="price">
+          Precio:
+        </label>
+        <input
+          id="price"
+          name="price"
+          className="block w-full p-3 bg-slate-100"
+          placeholder="Precio Producto"
+          defaultValue={product?.price}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-slate-800" htmlFor="categoryId">
+          Categoría:
+        </label>
+        <select
+          className="block w-full p-3 bg-slate-100"
+          id="categoryId"
+          name="categoryId"
+          defaultValue={product?.categoryId || ""}
+        >
+          <option value="" disabled>
+            -- Seleccione --
+          </option>
+          {categories.map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <ImageUpload image={product?.image} />
+    </>
+  );
+};
+
+export default ProductForm;
+```
+
+En el componente `src/components/admin/image-upload.tsx` vamos a agregar la validacion de la imagen:
+
+```tsx
+"use client";
+
+import { useState } from "react";
+import Image from "next/image";
+import { CldUploadWidget } from "next-cloudinary";
+import { TbPhotoPlus } from "react-icons/tb";
+import { getImagePath } from "@/utils";
+
+type Props = {
+  image?: string;
+};
+
+const ImageUpload = ({ image }: Props) => {
+  const [imageURL, setImagenURL] = useState<string>("");
+  return (
+    <CldUploadWidget
+      uploadPreset="quisoco-nextjs"
+      options={{ folder: "quisoco-nextjs", maxFiles: 1 }}
+      onSuccess={(res, { widget }) => {
+        console.log(res);
+        if (res.event === "success") {
+          // @ts-ignore
+          setImagenURL(res.info.secure_url);
+          widget.close();
+        }
+      }}
+      onError={(err) => console.error(err)}
+    >
+      {({ open }) => (
+        <>
+          <div className="space-y-2">
+            <label htmlFor="" className="text-slate-800">
+              Imagen Producto
+            </label>
+            <div
+              className="relative cursor-pointer hover:opacity-70 transition p-10 border-neutral-300 flex flex-col justify-center items-center gap-4 text-neutral-600 bg-slate-100"
+              onClick={() => open()}
+            >
+              <TbPhotoPlus size={50} />
+              <p className="text-lg font-semibold">Agregar imagen</p>
+
+              {imageURL && (
+                <div className="absolute inset-0 w-full h-full">
+                  <Image
+                    src={imageURL}
+                    alt="Imagen Producto"
+                    fill
+                    style={{ objectFit: "contain" }}
+                    sizes="100%"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {image && !imageURL && (
+            <div className="space-y-2">
+              <label htmlFor="">Imagen actual:</label>
+              <div className="relative w-64 h-64">
+                <Image
+                  src={getImagePath(image)}
+                  alt="Imagen Producto"
+                  fill
+                  style={{ objectFit: "contain" }}
+                />
+              </div>
+            </div>
+          )}
+
+          <input type="hidden" name="image" defaultValue={imageURL || image} />
+        </>
+      )}
+    </CldUploadWidget>
+  );
+};
+
+export default ImageUpload;
+```
+
+### Guardando los cambios de Productos
+
+En `src/actions/actions.ts` vamos a crear un nuevo `action` para actualizar un producto en la base de datos:
+
+```ts
+"use server";
+
+import { revalidatePath } from "next/cache";
+import prismaClient from "@/libs/prisma";
+import { OrderIdSchema, OrderSchema, ProductSchema } from "@/schema";
+
+export const createOrder = async (data: unknown) => {
+  const result = OrderSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.order.create({
+      data: {
+        name: result.data.name,
+        total: result.data.total,
+        OrderProduct: {
+          create: result.data.order.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity,
+          })),
+        },
+      },
+    });
+
+    console.log(response);
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el pedido" }],
+    };
+  }
+};
+
+export const completeOrder = async (formData: FormData) => {
+  try {
+    const data = {
+      orderId: formData.get("order_id"),
+    };
+
+    const result = OrderIdSchema.safeParse(data);
+
+    if (!result.success) {
+      return {
+        status: 400,
+        body: result.error.issues,
+      };
+    }
+
+    const response = await prismaClient.order.update({
+      where: {
+        id: result.data.orderId,
+      },
+      data: {
+        status: true,
+        orderReadyAt: new Date(),
+      },
+    });
+
+    console.log(response);
+    revalidatePath("/admin/orders");
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al completar el pedido" }],
+    };
+  }
+};
+
+export const createProduct = async (data: unknown) => {
+  const result = ProductSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.product.create({
+      data: result.data,
+    });
+
+    console.log(response);
+    return {
+      status: 201,
+      body: response,
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al crear el producto" }],
+    };
+  }
+};
+
+export const updateProduct = async (id: number, data: unknown) => {
+  const result = ProductSchema.safeParse(data);
+
+  if (!result.success) {
+    return {
+      status: 400,
+      body: result.error.issues,
+    };
+  }
+
+  try {
+    const response = await prismaClient.product.update({
+      where: {
+        id,
+      },
+      data: result.data,
+    });
+
+    revalidatePath("/admin/products");
+    return {
+      status: 201,
+      body: response,
+    };
+  } catch (error) {
+    return {
+      status: 500,
+      body: [{ message: "Ocurrió un error al actualizar el producto" }],
+    };
+  }
+};
+```
+
+Ahora vamos a modificar el componente `src/components/admin/edit-product-form.tsx` para que pueda actualizar un producto en la base de datos:
+
+```tsx
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
+import { toast } from "sonner";
+import { ProductSchema } from "@/schema";
+import { updateProduct } from "@/actions/actions";
+
+type Props = {
+  children: React.ReactNode;
+};
+
+const EditProductForm = ({ children }: Props) => {
+  const router = useRouter();
+  const { id } = useParams();
+
+  const handleCreateProduct = async (formData: FormData) => {
+    // Obtener datos del formulario
+    const data = {
+      name: formData.get("name") as string,
+      price: Number(formData.get("price")),
+      categoryId: Number(formData.get("categoryId")),
+      image: formData.get("image") as string,
+    };
+
+    // Validación con Zod
+    const result = ProductSchema.safeParse(data);
+
+    if (!result.success) {
+      // Mostrar errores de validación
+      result.error.issues.forEach((issue) => {
+        toast.error(issue.message);
+      });
+      return;
+    }
+
+    // Crear producto
+    const response = await updateProduct(Number(id), result.data);
+
+    if (response.status !== 201) {
+      // Verificar que response.body sea un array antes de usar forEach
+      if (Array.isArray(response.body)) {
+        response.body.forEach((error) => {
+          toast.error(error.message);
+        });
+      } else {
+        // En caso de que no sea un array, manejar el error según la estructura de tus datos
+        toast.error("Ocurrió un error inesperado");
+      }
+      return;
+    }
+
+    // Mostrar éxito
+    console.log(response);
+    toast.success("Producto actualizado exitosamente");
+    router.push("/admin/products");
+  };
+
+  return (
+    <div className="bg-white mt-10 px-5 py-10 rounded-md shadow-md max-w-3xl mx-auto">
+      <form action={handleCreateProduct} className="space-y-5">
+        {children}
+        <input
+          type="submit"
+          value="Guardar cambios"
+          className="bg-indigo-600 hover:bg-indigo-800 text-white w-full mt-5 p-3 uppercase font-bold cursor-pointer"
+        />
+      </form>
+    </div>
+  );
+};
+
+export default EditProductForm;
+```
