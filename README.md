@@ -13,6 +13,7 @@
 - Zustand
 - React Hook Form
 - Zod
+- SWR
 - Cloudinary
 - Prisma ORM
 - PostgreSQL
@@ -5436,4 +5437,308 @@ const EditProductForm = ({ children }: Props) => {
 };
 
 export default EditProductForm;
+```
+
+### Revalidacion Manual
+
+Vamos a ver dos tecnicas para recargar la pagina de Ordenes y de esta manera obtener las ultimas ordenes creadas:
+
+En `src/pages/admin/orders/page.tsx` vamos a agregar un boton para recargar la pagina:
+
+```tsx
+import { revalidatePath } from "next/cache";
+import OrderCard from "@/components/order/order-card";
+import Heading from "@/components/ui/heading";
+import prismaClient from "@/libs/prisma";
+
+type Props = {};
+
+const getPendingOrders = async () => {
+  const response = await prismaClient.order.findMany({
+    where: {
+      status: false,
+    },
+    include: {
+      OrderProduct: {
+        include: {
+          product: true,
+        },
+      },
+    },
+  });
+  return response;
+};
+
+export default async function AdminOrdersPage({}: Props) {
+  const pendingOrders = await getPendingOrders();
+
+  const refreshOrders = async () => {
+    "use server";
+    revalidatePath("/admin/orders");
+  };
+
+  return (
+    <>
+      <Heading>Administrador de Ordenes</Heading>
+
+      <form action={refreshOrders}>
+        <input
+          type="submit"
+          value="Actualizar ordenes"
+          className="bg-amber-400 w-full lg:w-auto text-xl px-10 py-3 text-center font-bold cursor-pointer"
+        />
+      </form>
+
+      {pendingOrders.length > 0 ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 mt-5">
+          {pendingOrders.map((order) => (
+            <OrderCard key={order.id} order={order} />
+          ))}
+        </div>
+      ) : (
+        <p>No hay ordenes pendientes</p>
+      )}
+    </>
+  );
+}
+```
+
+### Creando un endpoint de API para SWR
+
+Vamos a darle un comportamiento mas en tiempo real de forma muy simple con `SWR` y `API Routes` de Next.js. `SWR` es una herramienta desarrollada por los creadores de Next.js y Vercel. Primero `SWR` funciona en el cliente y requiere un endpoint de API para obtener los datos. Vamos a crear un endpoint de API para obtener las ordenes pendientes en `src/app/admin/orders/api/route.ts`:
+
+```ts
+import { NextResponse } from "next/server";
+import prismaClient from "@/libs/prisma";
+
+export const GET = async () => {
+  try {
+    const response = await prismaClient.order.findMany({
+      where: {
+        status: false,
+      },
+      include: {
+        OrderProduct: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+
+    return NextResponse.json(response);
+  } catch (error) {
+    return NextResponse.error();
+  }
+};
+```
+
+### Configurando SWR
+
+Vamos a mostrar las ordenes con `SWR`. Lo primero que debemos hacer es instalar la dependencia de `swr`:
+
+```bash
+npm i swr
+```
+
+En `app/admin/orders/page.tsx` vamos a utilizar `SWR` para obtener las ordenes pendientes:
+
+```tsx
+"use client";
+
+import useSWR from "swr";
+import OrderCard from "@/components/order/order-card";
+import Heading from "@/components/ui/heading";
+import { OrderWithProducts } from "@/types";
+
+type Props = {};
+
+export default function AdminOrdersPage({}: Props) {
+  const urlAPI = "/admin/orders/api";
+  const fetcher = () =>
+    fetch(urlAPI)
+      .then((res) => res.json())
+      .then((data) => data);
+
+  const { data, error, isLoading } = useSWR<OrderWithProducts[]>(
+    urlAPI,
+    fetcher,
+    {
+      refreshInterval: 1000,
+      revalidateOnFocus: false,
+    }
+  );
+
+  if (isLoading) return <p>Cargando...</p>;
+
+  return (
+    <>
+      <Heading>Administrador de Ordenes</Heading>
+
+      {data && data.length > 0 ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-5 mt-5">
+          {data.map((order) => (
+            <OrderCard key={order.id} order={order} />
+          ))}
+        </div>
+      ) : (
+        <p>No hay ordenes pendientes</p>
+      )}
+    </>
+  );
+}
+```
+
+### Creando el enpoint de API y pantalla de Ordenes Listas
+
+Vamos a crear la nueva pagina en `app/ready-orders/page.tsx`:
+
+```tsx
+import Logo from "@/components/icons/logo";
+
+type Props = {};
+
+export default function ReadyOrdersPage({}: Props) {
+  return (
+    <>
+      <h1 className="text-center mt-20 text-6xl font-black">Ordenes Listas</h1>
+      <Logo />
+    </>
+  );
+}
+```
+
+Creamos el nuevo endpoint de la API en `app/ready-orders/api/route.ts`:
+
+```ts
+import { NextResponse } from "next/server";
+import prismaClient from "@/libs/prisma";
+
+export const GET = async () => {
+  const response = await prismaClient.order.findMany({
+    where: {
+      status: true,
+      orderReadyAt: {
+        not: null,
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 5,
+    include: {
+      OrderProduct: {
+        include: {
+          product: true,
+        },
+      },
+    },
+  });
+
+  return NextResponse.json(response);
+};
+```
+
+### Consultar el Endpoint y mostrar las ordenes listas
+
+En `app/ready-orders/page.tsx` vamos a utilizar `SWR` para obtener las ordenes listas:
+
+```tsx
+"use client";
+
+import useSWR from "swr";
+import { OrderWithProducts } from "@/types";
+import Logo from "@/components/icons/logo";
+import LatestOrderItem from "@/components/order/latest-order-item";
+
+type Props = {};
+
+export default function ReadyOrdersPage({}: Props) {
+  const urlAPI = "/ready-orders/api";
+  const fetcher = () =>
+    fetch(urlAPI)
+      .then((res) => res.json())
+      .then((data) => data);
+  const { data, error, isLoading } = useSWR<OrderWithProducts[]>(
+    urlAPI,
+    fetcher,
+    {
+      refreshInterval: 1000,
+      revalidateOnFocus: false,
+    }
+  );
+
+  if (isLoading) {
+    return (
+      <>
+        <h1 className="text-center mt-20 text-6xl font-black">Cargando...</h1>
+        <Logo />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h1 className="text-center mt-20 text-6xl font-black">Ordenes Listas</h1>
+      <Logo />
+      {data && data.length > 0 ? (
+        <div className="grid grid-cols-2 gap-5 max-w-5xl mx-auto mt-10">
+          {data.map((order) => (
+            <LatestOrderItem key={order.id} order={order} />
+          ))}
+        </div>
+      ) : (
+        <p className="text-center my-10">No hay ordenes listas</p>
+      )}
+    </>
+  );
+}
+```
+
+En `components/order/latest-order-item.tsx` vamos a crear un nuevo componente para mostrar las ultimas ordenes listas:
+
+```tsx
+import { OrderWithProducts } from "@/types";
+
+type Props = {
+  order: OrderWithProducts;
+};
+
+const LatestOrderItem = ({ order }: Props) => {
+  return (
+    <div className="bg-white shadow p-5 space-y-5 rounded-lg">
+      <p className="text-2xl font-bold text-slate-600">
+        #{order.id} {""}
+        Cliente: {order.name}
+      </p>
+      <ul
+        role="list"
+        className="divide-y divide-gray-200 border-t border-gray-200 text-sm font-medium text-gray-500"
+      >
+        {order.OrderProduct.map((product) => (
+          <li key={product.id} className="flex py-6 text-lg">
+            <p>
+              <span className="font-bold">
+                ({product.quantity}) {""}
+              </span>
+              {product.product.name}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+export default LatestOrderItem;
+```
+
+En `app/page.tsx` vamos a redirigir a la pagina de `Quiosco`:
+
+```tsx
+import { redirect } from "next/navigation";
+
+export default function Home() {
+  redirect("/orders/cafe");
+}
 ```

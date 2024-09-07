@@ -1,7 +1,5 @@
+import { redirect } from "next/navigation";
+
 export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <h1 className="text-2xl text-fuchsia-500 font-bold">Hi maldito world!</h1>
-    </main>
-  );
+  redirect("/orders/cafe");
 }
